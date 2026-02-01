@@ -1,0 +1,6 @@
+/target/
+.settings
+*.so
+.project
+.classpath
+*.duckdb
