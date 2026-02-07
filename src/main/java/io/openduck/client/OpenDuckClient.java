@@ -11,12 +11,12 @@ import org.apache.arrow.flight.HeaderCallOption;
 import org.apache.arrow.flight.FlightCallHeaders;
 
 
-public class OpenDuckFlightClient implements AutoCloseable {
+public class OpenDuckClient implements AutoCloseable {
 
     private final BufferAllocator allocator;
     private final FlightClient client;
 
-    public OpenDuckFlightClient(String host, int port) {
+    public OpenDuckClient(String host, int port) {
         this.allocator = new RootAllocator(Long.MAX_VALUE);
         Location location = Location.forGrpcInsecure(host, port);
         this.client = FlightClient.builder(allocator, location).build();
@@ -64,12 +64,21 @@ public class OpenDuckFlightClient implements AutoCloseable {
     }
 
     public static void main(String[] args) throws Exception {
-        try (OpenDuckFlightClient client =
-                     new OpenDuckFlightClient("localhost", 8815)) {
+        try (OpenDuckClient client =
+                     new OpenDuckClient("localhost", 8815)) {
 
-        	//client.query("SELECT * FROM cities");
+        //	client.query("SELECT * FROM cities limit 5");
+        //	client.query("SELECT count(*) FROM cities");
           //  client.query("SELECT 42 AS answer");
-            client.query("SELECT range AS n FROM range(5)");
+            //client.query("SELECT range AS n FROM range(5)");
+        	
+        	
+        //	client.query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'");
+        //	client.query("SELECT * FROM read_csv_auto('D:\\Duckdb\\countries.csv') order by id limit 5");
+        	client.query("SELECT countries.name as country, cities.name as city  FROM read_csv_auto('D:\\Duckdb\\countries.csv') as countries"
+        			+ " inner join cities on countries.id = cities.country_id "
+        			+ "order by countries.name, cities.name");
+        	
         }
     }
 }
