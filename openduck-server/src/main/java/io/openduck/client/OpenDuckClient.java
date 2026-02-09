@@ -75,10 +75,10 @@ public class OpenDuckClient implements AutoCloseable {
         	
         //	client.query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'");
         //	client.query("SELECT * FROM read_csv_auto('D:\\Duckdb\\countries.csv') order by id limit 5");
-        	client.query("SELECT countries.name as country, cities.name as city  FROM read_csv_auto('D:\\Duckdb\\countries.csv') as countries"
-        			+ " inner join cities on countries.id = cities.country_id "
-        			+ "order by countries.name, cities.name");
-        	
+        //	client.query("SELECT countries.name as country, cities.name as city  FROM read_csv_auto('D:\\Duckdb\\countries.csv') as countries"         			+ " inner join cities on countries.id = cities.country_id "         			+ "order by countries.name, cities.name");
+        	client.query("SELECT * from cities where id = 1");
+        			
+        			
         }
     }
 }

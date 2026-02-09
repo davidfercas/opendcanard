@@ -1,0 +1,93 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<groupId>io.openduck</groupId>
+	<artifactId>jdbc-driver</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<packaging>jar</packaging>
+	<name>OpenDuck JDBC Driver</name>
+	<description>Minimal JDBC driver for OpenDuck Flight server (SELECT only)</description>
+	<properties>
+		<java.version>17</java.version>
+		<arrow.version>18.3.0</arrow.version>
+	</properties>
+	<dependencies>
+		<dependency>
+			<groupId>org.openjdk.jol</groupId>
+			<artifactId>jol-core</artifactId>
+			<version>0.17</version>
+		</dependency>
+		<!-- Apache Arrow Flight (CLASSIC) -->
+		<!-- Flight core implementation -->
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>flight-core</artifactId>
+			<version>18.3.0</version>
+		</dependency>
+		<!-- Arrow vector for schema & vectors -->
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>arrow-vector</artifactId>
+			<version>18.3.0</version>
+		</dependency>
+		<!-- Memory allocator for Arrow buffers -->
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>arrow-memory-core</artifactId>
+			<version>18.3.0</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>arrow-memory-netty</artifactId>
+			<version>18.3.0</version>
+		</dependency>
+		<!-- (Optional) Flight SQL helpers -->
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>flight-sql</artifactId>
+			<version>18.3.0</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>arrow-jdbc</artifactId>
+			<version>18.3.0</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>flight-sql-jdbc-driver</artifactId>
+			<version>18.3.0</version>
+		</dependency>
+
+		<!-- Log4j2 API and Core -->
+		<dependency>
+			<groupId>org.apache.logging.log4j</groupId>
+			<artifactId>log4j-api</artifactId>
+			<version>2.20.0</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.logging.log4j</groupId>
+			<artifactId>log4j-core</artifactId>
+			<version>2.20.0</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.logging.log4j</groupId>
+			<artifactId>log4j-slf4j-impl</artifactId>
+			<version>2.20.0</version>
+		</dependency>
+	</dependencies>
+	<build>
+		<plugins>
+			<!-- Compile with Java 17 -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<version>3.11.0</version>
+				<configuration>
+					<source>${java.version}</source>
+					<target>${java.version}</target>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+</project>
