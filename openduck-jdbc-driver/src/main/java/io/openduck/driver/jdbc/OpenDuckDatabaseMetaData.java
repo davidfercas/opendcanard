@@ -745,8 +745,21 @@ public class OpenDuckDatabaseMetaData implements DatabaseMetaData {
 	@Override
 	public ResultSet getTables(String catalog, String schemaPattern, String tableNamePattern, String[] types)
 			throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		
+		
+	    String sql = """
+		        SELECT table_schema, table_name, table_type
+		        FROM information_schema.tables
+		        WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+		        ORDER BY table_schema, table_name
+		        """;
+
+
+	        try (Statement stmt = ((OpenDuckConnection) this.conn).createStatement();
+	                ResultSet rs = stmt.executeQuery(sql)) {
+
+	        	return rs;
+	        }
 	}
 
 	@Override

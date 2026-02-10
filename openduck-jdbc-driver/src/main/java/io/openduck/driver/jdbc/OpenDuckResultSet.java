@@ -13,6 +13,7 @@ import java.math.BigDecimal;
 import java.net.URL;
 import java.sql.*;
 import java.util.Calendar;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,6 +30,7 @@ public class OpenDuckResultSet implements ResultSet {
     private int rowIndex = -1;
     private VectorSchemaRoot currentBatch;
     private List<VectorSchemaRoot> batches = new ArrayList<>();
+    private List<Field> fields;
     
     public OpenDuckResultSet(FlightStream stream) {
      //   this.stream = stream;
@@ -39,37 +41,9 @@ public class OpenDuckResultSet implements ResultSet {
     public OpenDuckResultSet(List<VectorSchemaRoot> batches) {
 		this.batches = batches;
 		this.currentBatch = batches.get(0);
+		this.fields = currentBatch.getSchema().getFields();
 	}
 
-//	private boolean loadNextBatch() {
-//        currentBatch.clear();
-//        rowInBatch = -1;
-//
-//        if (!stream.next()) {
-//            return false;
-//        }
-//
-//        root = stream.getRoot();
-//        int rowCount = root.getRowCount();
-//        int columnCount = root.getFieldVectors().size();
-//
-//        for (int r = 0; r < rowCount; r++) {
-//            Object[] row = new Object[columnCount];
-//            for (int c = 0; c < columnCount; c++) {
-//                Object val = root.getVector(c).getObject(r);
-//                if (val instanceof byte[]) {
-//                    val = ((byte[]) val).clone(); // defensive copy
-//                } else if (val instanceof String) {
-//                    val = new String((String) val); // defensive copy
-//                }
-//                row[c] = val;
-//            }
-//            currentBatch.add(row);
-//        }
-//
-//        return !currentBatch.isEmpty();
-//    }
-//    
     @Override
     public boolean next() {
         if (currentBatch == null) return false;
@@ -90,11 +64,27 @@ public class OpenDuckResultSet implements ResultSet {
     }
 
     @Override
-    public String getString(int columnIndex) {
-        //return stream.getRoot().getVector(columnIndex - 1).getObject(0).toString();
-    	Object val = root.getVector(columnIndex - 1).getObject(rowInBatch);
-        return val != null ? val.toString() : null;
+    public String getString(int columnIndex) throws SQLException {
+    	
+        if (currentBatch == null)
+            throw new SQLException("No batch available");
+
+        FieldVector vector = currentBatch.getVector(columnIndex - 1);
+
+        return vector.isNull(rowIndex) ? null : vector.getObject(rowIndex).toString();
+    	
     }
+    
+	@Override
+	public String getString(String columnLabel) throws SQLException {
+        if (currentBatch == null)
+            throw new SQLException("No batch available");
+
+        FieldVector vector = currentBatch.getVector(columnLabel);
+
+        return vector.isNull(rowIndex) ? null : vector.getObject(rowIndex).toString();
+	}
+
 
     @Override
     public void close() {
@@ -103,14 +93,6 @@ public class OpenDuckResultSet implements ResultSet {
         }
     }
 
-//    private void checkRowAndColumn(int columnIndex) throws SQLException {
-//        if (rowInBatch < 0 || rowInBatch >= currentBatch.size()) {
-//            throw new SQLException("Invalid row position");
-//        }
-//        if (columnIndex < 1 || columnIndex > currentBatch.get(rowInBatch).length) {
-//            throw new SQLException("Invalid column index: " + columnIndex);
-//        }
-//    }
     
 	@Override
 	public <T> T unwrap(Class<T> iface) throws SQLException {
@@ -218,12 +200,6 @@ public class OpenDuckResultSet implements ResultSet {
 	public InputStream getBinaryStream(int columnIndex) throws SQLException {
 		// TODO Auto-generated method stub
 		return null;
-	}
-
-	@Override
-	public String getString(String columnLabel) throws SQLException {
-    	Object val = root.getVector(columnLabel).getObject(rowInBatch);
-        return val != null ? val.toString() : null;
 	}
 
 	@Override
@@ -370,6 +346,13 @@ public class OpenDuckResultSet implements ResultSet {
 	@Override
 	public int findColumn(String columnLabel) throws SQLException {
 		// TODO Auto-generated method stub
+		
+		for (int i = 0; i < this.fields.size(); i++) {
+			Field field = (Field) fields.get(i);
+			if (columnLabel.equals(field.getName())){
+				return i+1;
+			}
+		}
 		return 0;
 	}
 
