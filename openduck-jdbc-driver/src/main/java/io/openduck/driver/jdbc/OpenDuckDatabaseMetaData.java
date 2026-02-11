@@ -746,32 +746,32 @@ public class OpenDuckDatabaseMetaData implements DatabaseMetaData {
 	public ResultSet getTables(String catalog, String schemaPattern, String tableNamePattern, String[] types)
 			throws SQLException {
 		
-		
-	    String sql = """
-		        SELECT table_schema, table_name, table_type
-		        FROM information_schema.tables
-		        WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
-		        ORDER BY table_schema, table_name
-		        """;
+		String sql = """
+				SELECT NULL AS TABLE_CAT,
+				    table_schema AS TABLE_SCHEM,
+				    table_name AS TABLE_NAME,
+				    'TABLE' AS TABLE_TYPE,
+				    NULL AS REMARKS
+				FROM information_schema.tables
+				WHERE table_type='BASE TABLE'
+				ORDER BY table_schema, table_name
+				""";
 
-
-	        try (Statement stmt = ((OpenDuckConnection) this.conn).createStatement();
-	                ResultSet rs = stmt.executeQuery(sql)) {
-
-	        	return rs;
-	        }
+	        Statement stmt = this.conn.createStatement();
+	        return stmt.executeQuery(sql);
 	}
 
 	@Override
 	public ResultSet getSchemas() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return this.conn.createStatement().executeQuery(
+				"SELECT schema_name AS TABLE_SCHEM, NULL AS TABLE_CATALOG FROM information_schema.schemata");
 	}
 
 	@Override
 	public ResultSet getCatalogs() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		//There are no catalogs in DuckDB so we just retrieve an empty query
+	    return this.conn.createStatement()
+	            .executeQuery("\"SELECT schema_name AS TABLE_CAT, NULL AS TABLE_CATALOG FROM information_schema.schemata\"");
 	}
 
 	@Override
@@ -783,8 +783,21 @@ public class OpenDuckDatabaseMetaData implements DatabaseMetaData {
 	@Override
 	public ResultSet getColumns(String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)
 			throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+
+	    String sql = """
+	            SELECT
+	                NULL AS TABLE_CAT,
+	                table_schema AS TABLE_SCHEM,
+	                table_name AS TABLE_NAME,
+	                column_name AS COLUMN_NAME,
+	                data_type AS TYPE_NAME,
+	                ordinal_position AS ORDINAL_POSITION
+	            FROM information_schema.columns
+	            ORDER BY ordinal_position
+	            """;
+
+	        Statement stmt = this.conn.createStatement();
+	        return stmt.executeQuery(sql);
 	}
 
 	@Override
