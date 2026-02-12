@@ -3,8 +3,8 @@
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>io.openduck</groupId>
-	<artifactId>jdbc-driver</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<artifactId>openduck-jdbc</artifactId>
+	<version>0.0.1T</version>
 	<packaging>jar</packaging>
 	<name>OpenDuck JDBC Driver</name>
 	<description>Minimal JDBC driver for OpenDuck Flight server (SELECT only)</description>

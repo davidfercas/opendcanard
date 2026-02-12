@@ -51,7 +51,7 @@ public class OpenDuckConnection implements Connection {
 
     @Override
     public Statement createStatement() {
-        return new OpenDuckStatement(client, allocator, null);
+        return new OpenDuckStatement(this, client , allocator, null);
     }
 
     @Override
@@ -157,8 +157,7 @@ public class OpenDuckConnection implements Connection {
 
 	@Override
 	public Statement createStatement(int resultSetType, int resultSetConcurrency) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return new OpenDuckStatement(this, client, allocator, null);
 	}
 
 	@Override
@@ -225,8 +224,7 @@ public class OpenDuckConnection implements Connection {
 	@Override
 	public Statement createStatement(int resultSetType, int resultSetConcurrency, int resultSetHoldability)
 			throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return new OpenDuckStatement(this, client, allocator, null);
 	}
 
 	@Override

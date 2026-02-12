@@ -1,26 +1,47 @@
 package io.openduck.driver.jdbc;
 
-import org.apache.arrow.flight.*;
+import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.SQLWarning;
+import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.apache.arrow.flight.FlightCallHeaders;
+import org.apache.arrow.flight.FlightClient;
+import org.apache.arrow.flight.FlightDescriptor;
+import org.apache.arrow.flight.FlightEndpoint;
+import org.apache.arrow.flight.FlightInfo;
+import org.apache.arrow.flight.FlightStream;
+import org.apache.arrow.flight.HeaderCallOption;
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.vector.VectorLoader;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.VectorUnloader;
 import org.apache.arrow.vector.ipc.message.ArrowRecordBatch;
-
-import java.nio.charset.StandardCharsets;
-import java.sql.*;
-import java.util.ArrayList;
-import java.util.List;
-import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.vector.FieldVector;
-import org.apache.arrow.vector.VectorLoader;
-import org.apache.arrow.memory.RootAllocator;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 
 public class OpenDuckStatement implements Statement {
 
+    private static final Logger logger = LogManager.getLogger(OpenDuckStatement.class);	
+	
 	private final FlightClient client;
 	private final BufferAllocator allocator;
+	private final Connection connection;
 
-	public OpenDuckStatement(FlightClient client, org.apache.arrow.memory.BufferAllocator allocator, String token) {
+    private ResultSet currentRs;
+
+    private int queryTimeout = 0;
+    private int maxRows = 100;
+    private int fetchSize = 100;
+    private boolean closed = false;
+    
+	public OpenDuckStatement(Connection connection, FlightClient client, org.apache.arrow.memory.BufferAllocator allocator, String token) {
+		this.connection = connection;
 		this.client = client;
 		this.allocator = allocator;
 	}
@@ -61,7 +82,8 @@ public class OpenDuckStatement implements Statement {
 				throw new SQLException("Error reading Flight stream", e);
 			}
 
-			return new OpenDuckResultSet(batches);
+			currentRs = new OpenDuckResultSet(batches); 
+			return currentRs;
 
 		} catch (Exception e) {
 			throw new SQLException(e);
@@ -87,11 +109,17 @@ public class OpenDuckStatement implements Statement {
 
 	@Override
 	public void close() {
+		try {
+			this.currentRs.close();
+			this.closed = true;
+		} catch (SQLException e) {
+			logger.error(e);
+		}
 	}
 
 	@Override
 	public boolean execute(String sql) throws SQLException {
-		executeQuery(sql);
+		currentRs = executeQuery(sql);
 		return true;
 	}
 
@@ -131,13 +159,12 @@ public class OpenDuckStatement implements Statement {
 
 	@Override
 	public int getMaxRows() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
+		return this.maxRows;
 	}
 
 	@Override
 	public void setMaxRows(int max) throws SQLException {
-		// TODO Auto-generated method stub
+		this.maxRows = max;
 
 	}
 
@@ -149,13 +176,12 @@ public class OpenDuckStatement implements Statement {
 
 	@Override
 	public int getQueryTimeout() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
+		return this.queryTimeout;
 	}
 
 	@Override
 	public void setQueryTimeout(int seconds) throws SQLException {
-		// TODO Auto-generated method stub
+		this.queryTimeout = seconds;
 
 	}
 
@@ -185,13 +211,11 @@ public class OpenDuckStatement implements Statement {
 
 	@Override
 	public ResultSet getResultSet() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return currentRs;  
 	}
 
 	@Override
 	public int getUpdateCount() throws SQLException {
-		// TODO Auto-generated method stub
 		return 0;
 	}
 
@@ -215,14 +239,13 @@ public class OpenDuckStatement implements Statement {
 
 	@Override
 	public void setFetchSize(int rows) throws SQLException {
-		// TODO Auto-generated method stub
+		this.fetchSize = rows;
 
 	}
 
 	@Override
 	public int getFetchSize() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
+		return this.fetchSize;
 	}
 
 	@Override
@@ -257,8 +280,7 @@ public class OpenDuckStatement implements Statement {
 
 	@Override
 	public Connection getConnection() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return this.connection;
 	}
 
 	@Override
@@ -317,8 +339,7 @@ public class OpenDuckStatement implements Statement {
 
 	@Override
 	public boolean isClosed() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return this.closed;
 	}
 
 	@Override
@@ -344,4 +365,10 @@ public class OpenDuckStatement implements Statement {
 		// TODO Auto-generated method stub
 		return false;
 	}
+
+    // --- Delegation for DBeaver internal wrapper ---
+    public Statement getOriginal() {
+        return this; // IMPORTANT: avoid null
+    }
+
 }
