@@ -1,25 +1,35 @@
 package io.openduck.client;
 
-import org.apache.arrow.flight.*;
+import java.nio.charset.StandardCharsets;
+
+import org.apache.arrow.flight.FlightCallHeaders;
+import org.apache.arrow.flight.FlightClient;
+import org.apache.arrow.flight.FlightDescriptor;
+import org.apache.arrow.flight.FlightEndpoint;
+import org.apache.arrow.flight.FlightInfo;
+import org.apache.arrow.flight.FlightStream;
+import org.apache.arrow.flight.HeaderCallOption;
+import org.apache.arrow.flight.Location;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 
-import java.nio.charset.StandardCharsets;
-
-import org.apache.arrow.flight.HeaderCallOption;
-import org.apache.arrow.flight.FlightCallHeaders;
+//Java Optional
+import java.util.Optional;
 
 
 public class OpenDuckClient implements AutoCloseable {
 
     private final BufferAllocator allocator;
     private final FlightClient client;
+    private final String token;
 
-    public OpenDuckClient(String host, int port) {
+    public OpenDuckClient(String host, int port, String token) {
         this.allocator = new RootAllocator(Long.MAX_VALUE);
         Location location = Location.forGrpcInsecure(host, port);
         this.client = FlightClient.builder(allocator, location).build();
+        this.token = token;
+        
     }
 
     public void query(String sql) throws Exception {
@@ -32,16 +42,17 @@ public class OpenDuckClient implements AutoCloseable {
         FlightCallHeaders headers = new FlightCallHeaders();
 
         // 2. Add your custom headers (Key-Value pairs)
-       // headers.insert("Authorization", "Bearer your-secret-token");
+        headers.insert("Authorization", "Bearer "+this.token);
         headers.insert("x-tenant-id", "openduck-01");
 
+        
         // 3. Instantiate the CallOption using the headers
         HeaderCallOption headerOption = new HeaderCallOption(headers);
         
         FlightInfo info = client.getInfo(descriptor, headerOption);
 
         for (FlightEndpoint endpoint : info.getEndpoints()) {
-            try (FlightStream stream = client.getStream(endpoint.getTicket())) {
+            try (FlightStream stream = client.getStream(endpoint.getTicket(), headerOption)) {
                 VectorSchemaRoot root = stream.getRoot();
 
                 while (stream.next()) {
@@ -65,7 +76,7 @@ public class OpenDuckClient implements AutoCloseable {
 
     public static void main(String[] args) throws Exception {
         try (OpenDuckClient client =
-                     new OpenDuckClient("localhost", 8815)) {
+                     new OpenDuckClient("localhost", 8815, "mysecret123")) {
 
         //	client.query("SELECT * FROM cities limit 5");
         //	client.query("SELECT count(*) FROM cities");
@@ -75,8 +86,8 @@ public class OpenDuckClient implements AutoCloseable {
         	
         //	client.query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'");
         //	client.query("SELECT * FROM read_csv_auto('D:\\Duckdb\\countries.csv') order by id limit 5");
-        //	client.query("SELECT countries.name as country, cities.name as city  FROM read_csv_auto('D:\\Duckdb\\countries.csv') as countries"         			+ " inner join cities on countries.id = cities.country_id "         			+ "order by countries.name, cities.name");
-        	client.query("SELECT schema_name AS TABLE_SCHEM, NULL AS TABLE_CATALOG FROM information_schema.schemata");
+        	client.query("SELECT countries.name as country, cities.name as city  FROM read_csv_auto('D:\\Duckdb\\countries.csv') as countries"         			+ " inner join cities on countries.id = cities.country_id "         			+ "order by countries.name, cities.name");
+        //	client.query("SELECT schema_name AS TABLE_SCHEM, NULL AS TABLE_CATALOG FROM information_schema.schemata");
         			
         			
         }

@@ -32,7 +32,8 @@ public class OpenDuckStatement implements Statement {
 	private final FlightClient client;
 	private final BufferAllocator allocator;
 	private final Connection connection;
-
+	private final String token;
+	
     private ResultSet currentRs;
 
     private int queryTimeout = 0;
@@ -44,6 +45,7 @@ public class OpenDuckStatement implements Statement {
 		this.connection = connection;
 		this.client = client;
 		this.allocator = allocator;
+		this.token = token;
 	}
 
 	@Override

@@ -41,9 +41,14 @@ public class OpenDuckConnection implements Connection {
     private final BufferAllocator allocator;
     private final FlightClient client;
     private boolean closed = false;
+    private String token;
 
     public OpenDuckConnection(String url, Properties props) {
         this.allocator = new RootAllocator(Long.MAX_VALUE);
+        
+        String token = props.getProperty("token");
+        this.token = token;
+        
         Location location = Location.forGrpcInsecure("localhost", 8815);
         this.client = FlightClient.builder(allocator, location).build();
                 

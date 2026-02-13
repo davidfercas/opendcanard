@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>io.openduck</groupId>
 	<artifactId>openduck-jdbc</artifactId>
-	<version>0.0.1T</version>
+	<version>0.0.1</version>
 	<packaging>jar</packaging>
 	<name>OpenDuck JDBC Driver</name>
 	<description>Minimal JDBC driver for OpenDuck Flight server (SELECT only)</description>
@@ -82,6 +82,8 @@
                 <directory>src/main/resources</directory>
                 <includes>
                     <include>**/*.ico</include>
+                    <include>**/*.png</include>
+                    <include>**/*.xml</include>
                     <include>**/*.properties</include>
                 </includes>
             </resource>

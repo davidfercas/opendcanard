@@ -1,12 +1,6 @@
 package io.openduck.server;
 
 import java.nio.charset.StandardCharsets;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import io.openduck.conf.Config;
-
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -15,10 +9,9 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Collections;
 
-import org.apache.arrow.adapter.jdbc.JdbcToArrowUtils;
 import org.apache.arrow.adapter.jdbc.JdbcToArrowConfig;
 import org.apache.arrow.adapter.jdbc.JdbcToArrowConfigBuilder;
-
+import org.apache.arrow.adapter.jdbc.JdbcToArrowUtils;
 import org.apache.arrow.flight.Action;
 import org.apache.arrow.flight.ActionType;
 import org.apache.arrow.flight.CallStatus;
@@ -37,6 +30,15 @@ import org.apache.arrow.flight.Ticket;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import org.apache.arrow.flight.CallHeaders;
+import org.apache.arrow.flight.CallStatus;
+import org.apache.arrow.flight.FlightServerMiddleware;
+
+import io.openduck.auth.AuthMiddlewareFactory;
+import io.openduck.conf.Config;
 
 public class OpenDuckServer implements FlightProducer, AutoCloseable {
 
@@ -120,7 +122,9 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 
 		// Build server
 		this.allocator = allocator;
-		this.server = FlightServer.builder(this.allocator, location, this).build();
+		this.server = FlightServer.builder(this.allocator, location, this).middleware(FlightServerMiddleware.Key.of("auth"),new AuthMiddlewareFactory("mysecret123")).build();
+		
+		 
 
 	}
 
