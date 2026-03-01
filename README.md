@@ -1,6 +1,7 @@
 <p align="center">
   <img src="resources/openduck_logo.png" alt="Project Logo" width="250"/>
 </p>
+
 # OpenDuck 
 
 **OpenDuck Server** is an open-source, self-hosted DuckDB Flight server for remote analytics.  
