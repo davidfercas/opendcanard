@@ -1,7 +1,10 @@
 package io.openduck.client;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 
+import org.apache.arrow.flight.CallHeaders;
+import org.apache.arrow.flight.CallOption;
 import org.apache.arrow.flight.FlightCallHeaders;
 import org.apache.arrow.flight.FlightClient;
 import org.apache.arrow.flight.FlightDescriptor;
@@ -13,10 +16,6 @@ import org.apache.arrow.flight.Location;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
-
-//Java Optional
-import java.util.Optional;
-
 
 public class OpenDuckClient implements AutoCloseable {
 
@@ -30,6 +29,7 @@ public class OpenDuckClient implements AutoCloseable {
         this.client = FlightClient.builder(allocator, location).build();
         this.token = token;
         
+        
     }
 
     public void query(String sql) throws Exception {
@@ -37,22 +37,24 @@ public class OpenDuckClient implements AutoCloseable {
                 FlightDescriptor.command(sql.getBytes(StandardCharsets.UTF_8));
 
 
-
-        // 1. Create a new headers container
-        FlightCallHeaders headers = new FlightCallHeaders();
-
-        // 2. Add your custom headers (Key-Value pairs)
-        headers.insert("Authorization", "Bearer "+this.token);
-        headers.insert("x-tenant-id", "openduck-01");
-
         
-        // 3. Instantiate the CallOption using the headers
-        HeaderCallOption headerOption = new HeaderCallOption(headers);
         
-        FlightInfo info = client.getInfo(descriptor, headerOption);
+        CallOption basicAuth = createBasicAuthOption("admin", "password123");
+        CallOption tokenAuth = createBearerTokenOption("openduck-secret-token");
+        
+
+     // 3. Example: Call listFlights using Token
+   //     System.out.println("Attempting call with Token...");
+   //     client.listFlights(org.apache.arrow.flight.Criteria.ALL, tokenAuth).forEach(info -> System.out.println("Found flight: " + info.getDescriptor()));
+
+        // 4. Example: Call listFlights using Username/Password
+        System.out.println("Attempting call with Basic Auth...");
+//        client.listFlights(org.apache.arrow.flight.Criteria.ALL, basicAuth).forEach(info -> System.out.println("Found flight: " + info.getDescriptor()));
+        
+        FlightInfo info = client.getInfo(descriptor, basicAuth);
 
         for (FlightEndpoint endpoint : info.getEndpoints()) {
-            try (FlightStream stream = client.getStream(endpoint.getTicket(), headerOption)) {
+            try (FlightStream stream = client.getStream(endpoint.getTicket(), basicAuth)) {
                 VectorSchemaRoot root = stream.getRoot();
 
                 while (stream.next()) {
@@ -73,6 +75,26 @@ public class OpenDuckClient implements AutoCloseable {
 		}
         allocator.close();
     }
+    
+    
+    
+    /** Creates a CallOption for Basic Authentication (User/Pass) */
+    private static CallOption createBasicAuthOption(String user, String pass) {
+        String combined = user + ":" + pass;
+        String encoded = Base64.getEncoder().encodeToString(combined.getBytes(StandardCharsets.UTF_8));
+        
+        CallHeaders headers = new FlightCallHeaders();
+        headers.insert("Authorization", "Basic " + encoded);
+        return new HeaderCallOption(headers);
+    }
+
+    /** Creates a CallOption for Bearer Token Authentication */
+    private static CallOption createBearerTokenOption(String token) {
+        CallHeaders headers = new FlightCallHeaders();
+        headers.insert("Authorization", "Bearer " + token);
+        return new HeaderCallOption(headers);
+    }
+    
 
     public static void main(String[] args) throws Exception {
         try (OpenDuckClient client =
@@ -88,7 +110,7 @@ public class OpenDuckClient implements AutoCloseable {
         //	client.query("SELECT * FROM read_csv_auto('D:\\Duckdb\\countries.csv') order by id limit 5");
         	client.query("SELECT countries.name as country, cities.name as city  FROM read_csv_auto('D:\\Duckdb\\countries.csv') as countries"         			+ " inner join cities on countries.id = cities.country_id "         			+ "order by countries.name, cities.name");
         //	client.query("SELECT schema_name AS TABLE_SCHEM, NULL AS TABLE_CATALOG FROM information_schema.schemata");
-        			
+        	System.out.println("End");
         			
         }
     }

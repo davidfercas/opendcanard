@@ -1,4 +1,4 @@
-package io.openduck.auth;
+package io.openduck.auth.token;
 
 import org.apache.arrow.flight.CallHeaders;
 import org.apache.arrow.flight.CallInfo;

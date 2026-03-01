@@ -24,51 +24,51 @@
 		<dependency>
 			<groupId>org.apache.arrow</groupId>
 			<artifactId>flight-core</artifactId>
-			<version>18.3.0</version>
+			<version>${arrow.version}</version>
 		</dependency>
 		<!-- Arrow vector for schema & vectors -->
 		<dependency>
 			<groupId>org.apache.arrow</groupId>
 			<artifactId>arrow-vector</artifactId>
-			<version>18.3.0</version>
+			<version>${arrow.version}</version>
 		</dependency>
 		<!-- Memory allocator for Arrow buffers -->
 		<dependency>
 			<groupId>org.apache.arrow</groupId>
 			<artifactId>arrow-memory-core</artifactId>
-			<version>18.3.0</version>
+			<version>${arrow.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.arrow</groupId>
 			<artifactId>arrow-memory-netty</artifactId>
-			<version>18.3.0</version>
+			<version>${arrow.version}</version>
 		</dependency>
 		<!-- (Optional) Flight SQL helpers -->
 		<dependency>
 			<groupId>org.apache.arrow</groupId>
 			<artifactId>flight-sql</artifactId>
-			<version>18.3.0</version>
+			<version>${arrow.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.arrow</groupId>
 			<artifactId>arrow-jdbc</artifactId>
-			<version>18.3.0</version>
+			<version>${arrow.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.arrow</groupId>
 			<artifactId>flight-sql-jdbc-driver</artifactId>
-			<version>18.3.0</version>
+			<version>${arrow.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>arrow-c-data</artifactId>
+			<version>${arrow.version}</version>
 		</dependency>
 		<!-- DuckDB -->
 		<dependency>
 			<groupId>org.duckdb</groupId>
 			<artifactId>duckdb_jdbc</artifactId>
 			<version>1.1.3</version>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.arrow</groupId>
-			<artifactId>arrow-c-data</artifactId>
-			<version>18.3.0</version>
 		</dependency>
 		<!-- Logging -->
 		<!-- Log4j2 API and Core -->

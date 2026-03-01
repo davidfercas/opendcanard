@@ -1,4 +1,4 @@
-package io.openduck.server;
+package io.openduck.util;
 
 import org.apache.arrow.adapter.jdbc.JdbcToArrowConfig;
 import org.apache.arrow.adapter.jdbc.JdbcToArrowConfigBuilder;

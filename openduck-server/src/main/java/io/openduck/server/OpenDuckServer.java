@@ -27,6 +27,7 @@ import org.apache.arrow.flight.PutResult;
 import org.apache.arrow.flight.Result;
 import org.apache.arrow.flight.SchemaResult;
 import org.apache.arrow.flight.Ticket;
+import org.apache.arrow.flight.auth2.CallHeaderAuthenticator;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.types.pojo.Schema;
@@ -37,8 +38,10 @@ import org.apache.arrow.flight.CallHeaders;
 import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.FlightServerMiddleware;
 
-import io.openduck.auth.AuthMiddlewareFactory;
+import io.openduck.auth.OpenDuckAuthenticator;
+import io.openduck.auth.token.AuthMiddlewareFactory;
 import io.openduck.conf.Config;
+import io.openduck.util.DuckDBArrowUtil;
 
 public class OpenDuckServer implements FlightProducer, AutoCloseable {
 
@@ -122,9 +125,11 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 
 		// Build server
 		this.allocator = allocator;
-		this.server = FlightServer.builder(this.allocator, location, this).middleware(FlightServerMiddleware.Key.of("auth"),new AuthMiddlewareFactory("mysecret123")).build();
+	//	this.server = FlightServer.builder(this.allocator, location, this).middleware(FlightServerMiddleware.Key.of("auth"),new AuthMiddlewareFactory("mysecret123")).build();
+		this.server = FlightServer.builder(this.allocator, location, this).headerAuthenticator(new OpenDuckAuthenticator()).build();
+		//this.server = FlightServer.builder(this.allocator, location, this).headerAuthenticator(CallHeaderAuthenticator.NO_OP).build(); 
 		
-		 
+		
 
 	}
 
