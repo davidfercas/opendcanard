@@ -27,19 +27,13 @@ import org.apache.arrow.flight.PutResult;
 import org.apache.arrow.flight.Result;
 import org.apache.arrow.flight.SchemaResult;
 import org.apache.arrow.flight.Ticket;
-import org.apache.arrow.flight.auth2.CallHeaderAuthenticator;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import org.apache.arrow.flight.CallHeaders;
-import org.apache.arrow.flight.CallStatus;
-import org.apache.arrow.flight.FlightServerMiddleware;
-
 import io.openduck.auth.OpenDuckAuthenticator;
-import io.openduck.auth.token.AuthMiddlewareFactory;
 import io.openduck.conf.Config;
 import io.openduck.util.DuckDBArrowUtil;
 
