@@ -39,10 +39,10 @@ public class OpenDuckClient implements AutoCloseable {
 
 
         BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
+        String username = "david";
         String rawPassword = "admin";
-        String hashedPassword = encoder.encode(rawPassword);
         
-        CallOption basicAuth = createBasicAuthOption("admin", rawPassword);
+        CallOption basicAuth = createBasicAuthOption(username, rawPassword);
     //    CallOption tokenAuth = createBearerTokenOption("openduck-secret-token");
         
 
@@ -110,10 +110,9 @@ public class OpenDuckClient implements AutoCloseable {
         	
         	
         //	client.query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'");
-        //	client.query("SELECT * FROM read_csv_auto('D:\\Duckdb\\countries.csv') order by id limit 5");
-        	client.query("SELECT countries.name as country, cities.name as city  FROM read_csv_auto('D:\\Duckdb\\countries.csv') as countries"
-        			+ " inner join cities on countries.id = cities.country_id "
-        			+ "order by countries.name, cities.name");
+        	client.query("SELECT * FROM read_csv_auto('D:\\Duckdb\\countries.csv') order by id limit 5");
+        //	client.query("INSERT INTO openduck_users VALUES (uuid(), 'david', '$2a$10$mcPJoVjXDaDXsGT/2PZUxOy/ZgWM9AVsXN9Q5uDxsURBBocKr1LXi', 'admin',    now());");
+       // 	client.query("SELECT countries.name as country, cities.name as city  FROM read_csv_auto('D:\\Duckdb\\countries.csv') as countries inner join cities on countries.id = cities.country_id order by countries.name, cities.name");
         //	client.query("SELECT schema_name AS TABLE_SCHEM, NULL AS TABLE_CATALOG FROM information_schema.schemata");
         	System.out.println("End");
         			

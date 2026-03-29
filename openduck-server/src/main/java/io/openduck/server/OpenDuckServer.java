@@ -120,7 +120,7 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 		// Build server
 		this.allocator = allocator;
 	//	this.server = FlightServer.builder(this.allocator, location, this).middleware(FlightServerMiddleware.Key.of("auth"),new AuthMiddlewareFactory("mysecret123")).build();
-		this.server = FlightServer.builder(this.allocator, location, this).headerAuthenticator(new OpenDuckAuthenticator()).build();
+		this.server = FlightServer.builder(this.allocator, location, this).headerAuthenticator(new OpenDuckAuthenticator(this.metadatadb)).build();
 		//this.server = FlightServer.builder(this.allocator, location, this).headerAuthenticator(CallHeaderAuthenticator.NO_OP).build(); 
 		
 		

@@ -36,7 +36,7 @@ public class OpenDuckResultSet implements ResultSet {
 
     @Override
     public boolean next() {
-        logger.error("next() called");
+        logger.debug("next() called");
 
         if (currentBatch == null) return false;
 
@@ -46,7 +46,7 @@ public class OpenDuckResultSet implements ResultSet {
             if (batchIndex >= batches.size()) return false;
             currentBatch = batches.get(batchIndex);
             rowIndex = 0;
-            logger.error("Moved to next batch: index=" + batchIndex + ", rows=" + currentBatch.getRowCount());
+            logger.debug("Moved to next batch: index=" + batchIndex + ", rows=" + currentBatch.getRowCount());
         }
 
         return true;
@@ -56,10 +56,10 @@ public class OpenDuckResultSet implements ResultSet {
 
     @Override
     public Object getObject(int columnIndex) throws SQLException {
-        logger.error("getObject(" + columnIndex + ") called");
+        logger.debug("getObject(" + columnIndex + ") called");
 
         if (rowIndex < 0) {
-            logger.error("getObject(" + columnIndex + ") called before next()!");
+            logger.debug("getObject(" + columnIndex + ") called before next()!");
             lastWasNull = true;
             return null;
         }
@@ -75,10 +75,9 @@ public class OpenDuckResultSet implements ResultSet {
 
     @Override
     public Object getObject(String columnLabel) throws SQLException {
-        logger.error("getObject(" + columnLabel + ") called");
+        logger.debug("getObject(" + columnLabel + ") called");
 
         if (rowIndex < 0) {
-            logger.error("getObject(" + columnLabel + ") called before next()!");
             lastWasNull = true;
             return null;
         }
@@ -286,7 +285,7 @@ public class OpenDuckResultSet implements ResultSet {
 
     @Override
     public boolean wasNull() throws SQLException {
-        logger.error("wasNull() called, lastWasNull=" + lastWasNull);
+        logger.debug("wasNull() called, lastWasNull=" + lastWasNull);
         return lastWasNull;
     }
 

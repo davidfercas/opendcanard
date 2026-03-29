@@ -1,5 +1,6 @@
 package io.openduck.driver.jdbc;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.Array;
 import java.sql.Blob;
 import java.sql.CallableStatement;
@@ -19,6 +20,7 @@ import java.sql.Savepoint;
 import java.sql.Statement;
 import java.sql.Struct;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -26,13 +28,18 @@ import java.util.Properties;
 import java.util.concurrent.Executor;
 
 import org.apache.arrow.flight.Action;
+import org.apache.arrow.flight.CallHeaders;
+import org.apache.arrow.flight.CallOption;
+import org.apache.arrow.flight.FlightCallHeaders;
 import org.apache.arrow.flight.FlightClient;
+import org.apache.arrow.flight.HeaderCallOption;
 import org.apache.arrow.flight.Location;
 import org.apache.arrow.flight.Result;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 public class OpenDuckConnection implements Connection {
 
@@ -41,24 +48,53 @@ public class OpenDuckConnection implements Connection {
     private final BufferAllocator allocator;
     private final FlightClient client;
     private boolean closed = false;
-    private String token;
+    private final String token;
+    private final String user;
+    private final String password;
 
     public OpenDuckConnection(String url, Properties props) {
         this.allocator = new RootAllocator(Long.MAX_VALUE);
         
+               
         String token = props.getProperty("token");
         this.token = token;
+        this.user = props.getProperty("user");
+        this.password = props.getProperty("password");
         
-        Location location = Location.forGrpcInsecure("localhost", 8815);
+        
+        String urlWithoutPrefix = url.replaceFirst("jdbc:openduck://", "");
+        String[] hostPortAndDb = urlWithoutPrefix.split("/");
+        String hostPort = hostPortAndDb[0]; // "[2001:db8::1]:3306" or "[2001:db8::1]"
+
+        int port = OpenDuckConstants.DEFAULT_PORT; 
+        String host = "localhost";
+        
+        if (hostPort.startsWith("[") && hostPort.endsWith("]")) {
+            // IPv6 without port
+            host = hostPort.substring(1, hostPort.length() - 1);
+        } else if (hostPort.startsWith("[") && hostPort.contains("]:")) {
+            // IPv6 with port
+            String[] parts = hostPort.split("]:");
+            host = parts[0].substring(1);
+            port = Integer.parseInt(parts[1]);
+        } else {
+            // IPv4 or hostname
+            String[] parts = hostPort.split(":");
+            host = parts[0];
+            port = parts.length > 1 ? Integer.parseInt(parts[1]) : OpenDuckConstants.DEFAULT_PORT;
+        }
+        
+        
+        Location location = Location.forGrpcInsecure(host, port);
         this.client = FlightClient.builder(allocator, location).build();
                 
     }
 
     @Override
     public Statement createStatement() {
-        return new OpenDuckStatement(this, client , allocator, null);
+        return new OpenDuckStatement(this, client , allocator, this.token, this.user, this.password);
     }
-
+    
     @Override
     public void close() {
         try {
@@ -162,7 +198,7 @@ public class OpenDuckConnection implements Connection {
 
 	@Override
 	public Statement createStatement(int resultSetType, int resultSetConcurrency) throws SQLException {
-		return new OpenDuckStatement(this, client, allocator, null);
+		return new OpenDuckStatement(this, client, allocator, this.token, this.user, this.password);
 	}
 
 	@Override
@@ -229,7 +265,7 @@ public class OpenDuckConnection implements Connection {
 	@Override
 	public Statement createStatement(int resultSetType, int resultSetConcurrency, int resultSetHoldability)
 			throws SQLException {
-		return new OpenDuckStatement(this, client, allocator, null);
+		return new OpenDuckStatement(this, client, allocator, this.token, this.user, this.password);
 	}
 
 	@Override
@@ -360,4 +396,6 @@ public class OpenDuckConnection implements Connection {
 		return 0;
 	}
 
+
+	
 }

@@ -7,8 +7,11 @@ import java.sql.SQLException;
 import java.sql.SQLWarning;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 
+import org.apache.arrow.flight.CallHeaders;
+import org.apache.arrow.flight.CallOption;
 import org.apache.arrow.flight.FlightCallHeaders;
 import org.apache.arrow.flight.FlightClient;
 import org.apache.arrow.flight.FlightDescriptor;
@@ -23,6 +26,7 @@ import org.apache.arrow.vector.VectorUnloader;
 import org.apache.arrow.vector.ipc.message.ArrowRecordBatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 
 public class OpenDuckStatement implements Statement {
@@ -33,6 +37,9 @@ public class OpenDuckStatement implements Statement {
 	private final BufferAllocator allocator;
 	private final Connection connection;
 	private final String token;
+	private final String username;
+	private final String password;
+	
 	
     private ResultSet currentRs;
 
@@ -41,11 +48,23 @@ public class OpenDuckStatement implements Statement {
     private int fetchSize = 100;
     private boolean closed = false;
     
-	public OpenDuckStatement(Connection connection, FlightClient client, org.apache.arrow.memory.BufferAllocator allocator, String token) {
+    /** Creates a CallOption for Basic Authentication (User/Pass) */
+    private static CallOption createBasicAuthOption(String user, String pass) {
+        String combined = user + ":" + pass;
+        String encoded = Base64.getEncoder().encodeToString(combined.getBytes(StandardCharsets.UTF_8));
+        
+        CallHeaders headers = new FlightCallHeaders();
+        headers.insert("Authorization", "Basic " + encoded);
+        return new HeaderCallOption(headers);
+    }    
+    
+	public OpenDuckStatement(Connection connection, FlightClient client, org.apache.arrow.memory.BufferAllocator allocator, String token, String username, String password) {
 		this.connection = connection;
 		this.client = client;
 		this.allocator = allocator;
 		this.token = token;
+		this.username = username;
+		this.password = password;
 	}
 
 	@Override
@@ -57,21 +76,29 @@ public class OpenDuckStatement implements Statement {
 			FlightDescriptor descriptor = FlightDescriptor.command(sql.getBytes(StandardCharsets.UTF_8));
 
 			// 1. Create a new headers container
-			FlightCallHeaders headers = new FlightCallHeaders();
+			//FlightCallHeaders headers = new FlightCallHeaders();
 
 			// 2. Add your custom headers (Key-Value pairs)
 			// headers.insert("Authorization", "Bearer your-secret-token");
-			headers.insert("x-tenant-id", "openduck-01");
+			//headers.insert("x-tenant-id", "openduck-01");
 
 			// 3. Instantiate the CallOption using the headers
-			HeaderCallOption headerOption = new HeaderCallOption(headers);
+			//HeaderCallOption headerOption = new HeaderCallOption(headers);
 
-			FlightInfo info = client.getInfo(descriptor, headerOption);
+
+//	        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
+//	        String username = "admin";
+//	        String rawPassword = "admin";
+	        
+	        CallOption basicAuth = createBasicAuthOption(this.username, this.password);
+			
+			
+			FlightInfo info = client.getInfo(descriptor, basicAuth);
 
 			List<FlightEndpoint> endpoints = info.getEndpoints();
 
 			// THIS is where the snippet goes
-			try (FlightStream stream = client.getStream(endpoints.get(0).getTicket())) {
+			try (FlightStream stream = client.getStream(endpoints.get(0).getTicket(), basicAuth)) {
 				while (stream.next()) {
 			        VectorSchemaRoot root = stream.getRoot();
 			        
@@ -112,8 +139,10 @@ public class OpenDuckStatement implements Statement {
 	@Override
 	public void close() {
 		try {
-			this.currentRs.close();
-			this.closed = true;
+			if (this.currentRs!=null) {
+				this.currentRs.close();
+				this.closed = true;
+			}
 		} catch (SQLException e) {
 			logger.error(e);
 		}

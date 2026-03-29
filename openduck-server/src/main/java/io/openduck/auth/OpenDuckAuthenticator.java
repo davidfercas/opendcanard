@@ -1,5 +1,7 @@
 package io.openduck.auth;
 
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.Base64;
 import java.util.HashMap;
 
@@ -8,18 +10,23 @@ import org.apache.arrow.flight.CallStatus; // Add this import
 import org.apache.arrow.flight.auth2.CallHeaderAuthenticator;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
+import io.openduck.user.User;
+import io.openduck.user.UserRepository;
+
 public class OpenDuckAuthenticator implements CallHeaderAuthenticator {
 
-	private HashMap<String, String> users;
+
 
 	private static final CallStatus UNAUTHENTICATED =
 		    CallStatus.UNAUTHENTICATED.withDescription("Login failure: Wrong user/password");
+	private static final CallStatus AUTHENTICATIONERROR =
+		    CallStatus.UNAUTHENTICATED.withDescription("Internal error during login");
 	
-	public OpenDuckAuthenticator() {
+	private Connection conn;
+	
+	public OpenDuckAuthenticator(Connection metadatadb) {
 		super();
-		users = new HashMap<String, String>();
-		users.put("admin", "$2a$10$mcPJoVjXDaDXsGT/2PZUxOy/ZgWM9AVsXN9Q5uDxsURBBocKr1LXi");
-		users.put("user1", "1234");
+		this.conn = metadatadb;
 	}
 
 	@Override
@@ -39,7 +46,11 @@ public class OpenDuckAuthenticator implements CallHeaderAuthenticator {
 			String username = values[0];
 			String password = values[1];
 
-			return validateBasic(username, password);
+			try {
+				return validateBasic(username, password);
+			} catch (Exception e) {
+				throw CallStatus.UNAUTHENTICATED.withDescription(e.getMessage()).toRuntimeException();
+			}
 		} else if (authHeader.startsWith("Bearer ")) {
 			return validateToken(authHeader.substring(7));
 		}
@@ -47,17 +58,21 @@ public class OpenDuckAuthenticator implements CallHeaderAuthenticator {
 		throw CallStatus.UNAUTHENTICATED.withDescription("Invalid Scheme").toRuntimeException();
 	}
 
-	private AuthResult validateBasic(String user, String password) {
+	private AuthResult validateBasic(String username, String password) throws Exception {
 		// Decode and verify credentials...
 		BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
 
-		if (user == null || password == null) {
+		UserRepository userRepository = new UserRepository();
+		
+		User user = userRepository.getUser(this.conn, username);
+			if (user == null || password == null) {
+				throw UNAUTHENTICATED.toRuntimeException();
+			}
+			if (encoder.matches(password, user.getPasswordHash())) {
+				return () -> username;
+			}
 			throw UNAUTHENTICATED.toRuntimeException();
-		}
-		if (encoder.matches(password, this.users.get(user))) {
-			return () -> user;
-		}
-		throw UNAUTHENTICATED.toRuntimeException();
+		
 	}
 
 	private AuthResult validateToken(String token) {
