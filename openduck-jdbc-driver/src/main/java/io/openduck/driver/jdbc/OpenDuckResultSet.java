@@ -1,5 +1,6 @@
 package io.openduck.driver.jdbc;
 
+import org.apache.arrow.flight.*;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -15,310 +16,194 @@ import java.sql.Date;
 import java.util.*;
 
 public class OpenDuckResultSet implements ResultSet {
-
     private static final Logger logger = LogManager.getLogger(OpenDuckResultSet.class);
 
+    private final Statement statement;
+    private final FlightClient client;
+    private final List<FlightEndpoint> endpoints;
+    private final CallOption authOption;
+    
+    private FlightStream currentStream;
     private VectorSchemaRoot currentBatch;
-    private int batchIndex = 0;
+    private int endpointIndex = 0;
     private int rowIndex = -1;
-    private List<VectorSchemaRoot> batches = new ArrayList<>();
-    private List<Field> fields;
+    private boolean closed = false;
     private boolean lastWasNull = false;
 
-    public OpenDuckResultSet(List<VectorSchemaRoot> batches) {
-        this.batches = batches;
-        if (!batches.isEmpty()) {
-            this.currentBatch = batches.get(0);
-            this.fields = currentBatch.getSchema().getFields();
-            logger.error("OpenDuckResultSet created: batches=" + batches.size() + ", first batch rows=" + currentBatch.getRowCount());
+    public OpenDuckResultSet(Statement statement, FlightInfo info, CallOption auth) throws SQLException {
+        this.statement = statement;
+        this.client = ((OpenDuckConnection)statement.getConnection()).getOriginalClient(); 
+        this.endpoints = info.getEndpoints();
+        this.authOption = auth;
+        
+        // Initialize the first stream
+        moveToNextStream();
+        
+        // We need to "prime" the currentBatch to get the schema, 
+        // even if we haven't started iterating with next() yet.
+        if (currentStream != null && currentStream.next()) {
+            this.currentBatch = currentStream.getRoot();
+            // Since we just physically moved the stream to the first batch,
+            // we set rowIndex to -1 so that the FIRST call to next() 
+            // correctly points to index 0.
+            this.rowIndex = -1; 
+        }
+        
+    }
+
+    private boolean moveToNextStream() throws SQLException {
+        try {
+            if (currentStream != null) currentStream.close();
+            if (endpointIndex >= endpoints.size()) return false;
+
+            Ticket ticket = endpoints.get(endpointIndex++).getTicket();
+            currentStream = client.getStream(ticket, authOption);
+            return true;
+        } catch (Exception e) {
+            throw new SQLException("Failed to open Flight stream", e);
         }
     }
 
     @Override
-    public boolean next() {
-        logger.debug("next() called");
-
-        if (currentBatch == null) return false;
+    public boolean next() throws SQLException {
+        checkClosed();
+        
+        if (currentStream == null) return false;
 
         rowIndex++;
-        while (rowIndex >= currentBatch.getRowCount()) {
-            batchIndex++;
-            if (batchIndex >= batches.size()) return false;
-            currentBatch = batches.get(batchIndex);
-            rowIndex = 0;
-            logger.debug("Moved to next batch: index=" + batchIndex + ", rows=" + currentBatch.getRowCount());
+        
+        // Check if we need to load the next batch in the current stream
+        if (currentBatch == null || rowIndex >= currentBatch.getRowCount()) {
+            if (currentStream.next()) {
+                currentBatch = currentStream.getRoot();
+                rowIndex = 0;
+                // Recursive check for empty batches
+                if (currentBatch.getRowCount() == 0) return next(); 
+            } else {
+                // Current stream exhausted, try next endpoint/stream
+                if (moveToNextStream()) {
+                    return next();
+                }
+                return false;
+            }
         }
-
         return true;
     }
 
-    // ------------------ Object getters ------------------
-
     @Override
     public Object getObject(int columnIndex) throws SQLException {
-        logger.debug("getObject(" + columnIndex + ") called");
-
-        if (rowIndex < 0) {
-            logger.debug("getObject(" + columnIndex + ") called before next()!");
+        checkClosed();
+        if (currentBatch == null || rowIndex < 0) throw new SQLException("Cursor out of bounds");
+        
+        FieldVector vector = currentBatch.getVector(columnIndex - 1);
+        if (vector.isNull(rowIndex)) {
             lastWasNull = true;
             return null;
         }
-
-        if (currentBatch == null)
-            throw new SQLException("No batch available");
-
-        FieldVector vector = currentBatch.getVector(columnIndex - 1);
-        Object o = vector.isNull(rowIndex) ? null : vector.getObject(rowIndex);
-        lastWasNull = (o == null);
-        return o;
+        lastWasNull = false;
+        return vector.getObject(rowIndex);
     }
 
     @Override
     public Object getObject(String columnLabel) throws SQLException {
-        logger.debug("getObject(" + columnLabel + ") called");
-
-        if (rowIndex < 0) {
-            lastWasNull = true;
-            return null;
-        }
-
-        if (currentBatch == null)
-            throw new SQLException("No batch available");
-
-        FieldVector vector = currentBatch.getVector(columnLabel);
-        Object o = vector.isNull(rowIndex) ? null : vector.getObject(rowIndex);
-        lastWasNull = (o == null);
-        return o;
-    }
-
-    // ------------------ Primitive & String getters ------------------
-
-    @Override
-    public String getString(int columnIndex) throws SQLException {
-        Object o = getObject(columnIndex);
-        return o == null ? null : o.toString();
+        return getObject(findColumn(columnLabel));
     }
 
     @Override
-    public String getString(String columnLabel) throws SQLException {
-        Object o = getObject(columnLabel);
-        return o == null ? null : o.toString();
+    public boolean wasNull() { return lastWasNull; }
+
+    // --- Type Mapping Bridge ---
+
+    @Override public String getString(int i) throws SQLException { 
+        Object o = getObject(i); 
+        return o == null ? null : o.toString(); 
+    }
+    
+    @Override public int getInt(int i) throws SQLException {
+        Object o = getObject(i);
+        return o == null ? 0 : ((Number) o).intValue();
     }
 
-    @Override
-    public boolean getBoolean(int columnIndex) throws SQLException {
-        Object o = getObject(columnIndex);
-        boolean value = o != null && (o instanceof Boolean ? (Boolean) o : Boolean.parseBoolean(o.toString()));
-        lastWasNull = (o == null);
-        return value;
+    @Override public long getLong(int i) throws SQLException {
+        Object o = getObject(i);
+        return o == null ? 0L : ((Number) o).longValue();
     }
 
-    @Override
-    public boolean getBoolean(String columnLabel) throws SQLException {
-        Object o = getObject(columnLabel);
-        boolean value = o != null && (o instanceof Boolean ? (Boolean) o : Boolean.parseBoolean(o.toString()));
-        lastWasNull = (o == null);
-        return value;
+    @Override public double getDouble(int i) throws SQLException {
+        Object o = getObject(i);
+        return o == null ? 0.0 : ((Number) o).doubleValue();
     }
 
-    @Override
-    public byte getByte(int columnIndex) throws SQLException {
-        Object o = getObject(columnIndex);
-        byte value = o == null ? 0 : ((Number) o).byteValue();
-        lastWasNull = (o == null);
-        return value;
+    @Override public boolean getBoolean(int i) throws SQLException {
+        Object o = getObject(i);
+        if (o instanceof Boolean) return (Boolean) o;
+        return o != null && Boolean.parseBoolean(o.toString());
     }
 
-    @Override
-    public byte getByte(String columnLabel) throws SQLException {
-        Object o = getObject(columnLabel);
-        byte value = o == null ? 0 : ((Number) o).byteValue();
-        lastWasNull = (o == null);
-        return value;
-    }
-
-    @Override
-    public short getShort(int columnIndex) throws SQLException {
-        Object o = getObject(columnIndex);
-        short value = o == null ? 0 : ((Number) o).shortValue();
-        lastWasNull = (o == null);
-        return value;
-    }
-
-    @Override
-    public short getShort(String columnLabel) throws SQLException {
-        Object o = getObject(columnLabel);
-        short value = o == null ? 0 : ((Number) o).shortValue();
-        lastWasNull = (o == null);
-        return value;
-    }
-
-    @Override
-    public int getInt(int columnIndex) throws SQLException {
-        Object o = getObject(columnIndex);
-        int value = o == null ? 0 : ((Number) o).intValue();
-        lastWasNull = (o == null);
-        return value;
-    }
-
-    @Override
-    public int getInt(String columnLabel) throws SQLException {
-        Object o = getObject(columnLabel);
-        int value = o == null ? 0 : ((Number) o).intValue();
-        lastWasNull = (o == null);
-        return value;
-    }
-
-    @Override
-    public long getLong(int columnIndex) throws SQLException {
-        Object o = getObject(columnIndex);
-        long value = o == null ? 0 : ((Number) o).longValue();
-        lastWasNull = (o == null);
-        return value;
-    }
-
-    @Override
-    public long getLong(String columnLabel) throws SQLException {
-        Object o = getObject(columnLabel);
-        long value = o == null ? 0 : ((Number) o).longValue();
-        lastWasNull = (o == null);
-        return value;
-    }
-
-    @Override
-    public float getFloat(int columnIndex) throws SQLException {
-        Object o = getObject(columnIndex);
-        float value = o == null ? 0 : ((Number) o).floatValue();
-        lastWasNull = (o == null);
-        return value;
-    }
-
-    @Override
-    public float getFloat(String columnLabel) throws SQLException {
-        Object o = getObject(columnLabel);
-        float value = o == null ? 0 : ((Number) o).floatValue();
-        lastWasNull = (o == null);
-        return value;
-    }
-
-    @Override
-    public double getDouble(int columnIndex) throws SQLException {
-        Object o = getObject(columnIndex);
-        double value = o == null ? 0 : ((Number) o).doubleValue();
-        lastWasNull = (o == null);
-        return value;
-    }
-
-    @Override
-    public double getDouble(String columnLabel) throws SQLException {
-        Object o = getObject(columnLabel);
-        double value = o == null ? 0 : ((Number) o).doubleValue();
-        lastWasNull = (o == null);
-        return value;
-    }
-
-    @Override
-    public BigDecimal getBigDecimal(int columnIndex) throws SQLException {
-        Object o = getObject(columnIndex);
-        BigDecimal value = o == null ? null : new BigDecimal(o.toString());
-        lastWasNull = (o == null);
-        return value;
-    }
-
-    @Override
-    public BigDecimal getBigDecimal(String columnLabel) throws SQLException {
-        Object o = getObject(columnLabel);
-        BigDecimal value = o == null ? null : new BigDecimal(o.toString());
-        lastWasNull = (o == null);
-        return value;
-    }
-
-    @Override
-    public Date getDate(int columnIndex) throws SQLException {
-        Object o = getObject(columnIndex);
-        Date value = o instanceof Date ? (Date) o : null;
-        lastWasNull = (value == null);
-        return value;
-    }
-
-    @Override
-    public Date getDate(String columnLabel) throws SQLException {
-        Object o = getObject(columnLabel);
-        Date value = o instanceof Date ? (Date) o : null;
-        lastWasNull = (value == null);
-        return value;
-    }
-
-    @Override
-    public Time getTime(int columnIndex) throws SQLException {
-        Object o = getObject(columnIndex);
-        Time value = o instanceof Time ? (Time) o : null;
-        lastWasNull = (value == null);
-        return value;
-    }
-
-    @Override
-    public Time getTime(String columnLabel) throws SQLException {
-        Object o = getObject(columnLabel);
-        Time value = o instanceof Time ? (Time) o : null;
-        lastWasNull = (value == null);
-        return value;
-    }
-
-    @Override
-    public Timestamp getTimestamp(int columnIndex) throws SQLException {
-        Object o = getObject(columnIndex);
-        Timestamp value = o instanceof Timestamp ? (Timestamp) o : null;
-        lastWasNull = (value == null);
-        return value;
-    }
-
-    @Override
-    public Timestamp getTimestamp(String columnLabel) throws SQLException {
-        Object o = getObject(columnLabel);
-        Timestamp value = o instanceof Timestamp ? (Timestamp) o : null;
-        lastWasNull = (value == null);
-        return value;
-    }
-
-    // ------------------ wasNull ------------------
-
-    @Override
-    public boolean wasNull() throws SQLException {
-        logger.debug("wasNull() called, lastWasNull=" + lastWasNull);
-        return lastWasNull;
-    }
-
-    // ------------------ remaining methods ------------------
-    // Keep stubs as before (close(), getMetaData(), findColumn(), etc.)
-    // These methods can remain unchanged from your previous class
-    @Override
-    public void close() { batches.forEach(VectorSchemaRoot::close); }
+    // --- Metadata and Lifecycle ---
 
     @Override
     public ResultSetMetaData getMetaData() throws SQLException {
-        if (batches == null || batches.isEmpty()) throw new SQLException("No batches available for metadata");
-        return new OpenDuckResultSetMetaData(batches.get(0));
+        checkClosed();
+        return new OpenDuckResultSetMetaData(currentBatch);
     }
 
     @Override
     public int findColumn(String columnLabel) throws SQLException {
-        for (int i = 0; i < fields.size(); i++) {
-            if (fields.get(i).getName().equals(columnLabel)) return i + 1;
-        }
-        return 0;
+        checkClosed();
+        return currentBatch.getSchema().getFields().stream()
+            .map(Field::getName)
+            .collect(java.util.stream.Collectors.toList())
+            .indexOf(columnLabel) + 1;
     }
 
+    @Override
+    public void close() throws SQLException {
+        if (closed) return;
+        try {
+            if (currentStream != null) currentStream.close();
+            closed = true;
+        } catch (Exception e) {
+            throw new SQLException(e);
+        }
+    }
+
+    private void checkClosed() throws SQLException {
+        if (closed) throw new SQLException("ResultSet is closed");
+    }
+
+    // --- Boilerplate Stubs for compatibility ---
+
+    @Override public Statement getStatement() { return statement; }
+    @Override public boolean isClosed() { return closed; }
+    @Override public int getType() { return ResultSet.TYPE_FORWARD_ONLY; }
+    @Override public int getConcurrency() { return ResultSet.CONCUR_READ_ONLY; }
+    @Override public int getFetchSize() throws SQLException { return statement.getFetchSize(); }
+
+    @Override
+    public <T> T unwrap(Class<T> iface) throws SQLException {
+        if (iface.isInstance(this)) return iface.cast(this);
+        throw new SQLException("Not a wrapper");
+    }
+
+    @Override public boolean isWrapperFor(Class<?> iface) { return iface.isInstance(this); }
+
 	@Override
-	public <T> T unwrap(Class<T> iface) throws SQLException {
+	public byte getByte(int columnIndex) throws SQLException {
 		// TODO Auto-generated method stub
-		return null;
+		return 0;
 	}
 
 	@Override
-	public boolean isWrapperFor(Class<?> iface) throws SQLException {
+	public short getShort(int columnIndex) throws SQLException {
 		// TODO Auto-generated method stub
-		return false;
+		return 0;
+	}
+
+	@Override
+	public float getFloat(int columnIndex) throws SQLException {
+		// TODO Auto-generated method stub
+		return 0;
 	}
 
 	@Override
@@ -333,7 +218,23 @@ public class OpenDuckResultSet implements ResultSet {
 		return null;
 	}
 
+	@Override
+	public Date getDate(int columnIndex) throws SQLException {
+		// TODO Auto-generated method stub
+		return null;
+	}
 
+	@Override
+	public Time getTime(int columnIndex) throws SQLException {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public Timestamp getTimestamp(int columnIndex) throws SQLException {
+		// TODO Auto-generated method stub
+		return null;
+	}
 
 	@Override
 	public InputStream getAsciiStream(int columnIndex) throws SQLException {
@@ -354,34 +255,83 @@ public class OpenDuckResultSet implements ResultSet {
 	}
 
 	@Override
+	public String getString(String columnLabel) throws SQLException {
+		return getString(findColumn(columnLabel));
+	}
+
+	@Override
+	public boolean getBoolean(String columnLabel) throws SQLException {
+		return getBoolean(findColumn(columnLabel));
+	}
+
+	@Override
+	public byte getByte(String columnLabel) throws SQLException {
+		return getByte(findColumn(columnLabel));
+	}
+
+	@Override
+	public short getShort(String columnLabel) throws SQLException {
+		return getShort(findColumn(columnLabel));
+	}
+
+	@Override
+	public int getInt(String columnLabel) throws SQLException {
+		return getInt(findColumn(columnLabel));
+	}
+
+	@Override
+	public long getLong(String columnLabel) throws SQLException {
+		return getLong(findColumn(columnLabel));
+	}
+
+	@Override
+	public float getFloat(String columnLabel) throws SQLException {
+		return getFloat(findColumn(columnLabel));
+	}
+
+	@Override
+	public double getDouble(String columnLabel) throws SQLException {
+		return getDouble(findColumn(columnLabel));
+	}
+
+	@Override
 	public BigDecimal getBigDecimal(String columnLabel, int scale) throws SQLException {
-		// TODO Auto-generated method stub
 		return null;
 	}
 
 	@Override
 	public byte[] getBytes(String columnLabel) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return getBytes(findColumn(columnLabel));
 	}
 
+	@Override
+	public Date getDate(String columnLabel) throws SQLException {
+		return getDate(findColumn(columnLabel));
+	}
+
+	@Override
+	public Time getTime(String columnLabel) throws SQLException {
+		return getTime(findColumn(columnLabel));
+	}
+
+	@Override
+	public Timestamp getTimestamp(String columnLabel) throws SQLException {
+		return getTimestamp(findColumn(columnLabel));
+	}
 
 	@Override
 	public InputStream getAsciiStream(String columnLabel) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return getAsciiStream(findColumn(columnLabel));
 	}
 
 	@Override
 	public InputStream getUnicodeStream(String columnLabel) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return getUnicodeStream(findColumn(columnLabel));
 	}
 
 	@Override
 	public InputStream getBinaryStream(String columnLabel) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return getBinaryStream(findColumn(columnLabel));
 	}
 
 	@Override
@@ -404,12 +354,22 @@ public class OpenDuckResultSet implements ResultSet {
 
 	@Override
 	public Reader getCharacterStream(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
 		return null;
 	}
 
 	@Override
 	public Reader getCharacterStream(String columnLabel) throws SQLException {
+		return getCharacterStream(findColumn(columnLabel));
+	}
+
+	@Override
+	public BigDecimal getBigDecimal(int columnIndex) throws SQLException {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public BigDecimal getBigDecimal(String columnLabel) throws SQLException {
 		// TODO Auto-generated method stub
 		return null;
 	}
@@ -502,24 +462,6 @@ public class OpenDuckResultSet implements ResultSet {
 	public void setFetchSize(int rows) throws SQLException {
 		// TODO Auto-generated method stub
 		
-	}
-
-	@Override
-	public int getFetchSize() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
-	}
-
-	@Override
-	public int getType() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
-	}
-
-	@Override
-	public int getConcurrency() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
 	}
 
 	@Override
@@ -811,12 +753,6 @@ public class OpenDuckResultSet implements ResultSet {
 	}
 
 	@Override
-	public Statement getStatement() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
 	public Object getObject(int columnIndex, Map<String, Class<?>> map) throws SQLException {
 		// TODO Auto-generated method stub
 		return null;
@@ -1000,12 +936,6 @@ public class OpenDuckResultSet implements ResultSet {
 	public int getHoldability() throws SQLException {
 		// TODO Auto-generated method stub
 		return 0;
-	}
-
-	@Override
-	public boolean isClosed() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
 	}
 
 	@Override
@@ -1271,6 +1201,4 @@ public class OpenDuckResultSet implements ResultSet {
 		// TODO Auto-generated method stub
 		return null;
 	}
-
-    // The rest of the ResultSet methods can remain as stubs
 }

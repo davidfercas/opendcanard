@@ -1,6 +1,7 @@
 package io.openduck.driver.jdbc;
 
 import java.sql.*;
+import java.util.Properties;
 
 public class OpenDuckJdbcClient {
 
@@ -11,8 +12,11 @@ public class OpenDuckJdbcClient {
 
         // 2️⃣ JDBC URL (match your driver format)
         String url = "jdbc:openduck://localhost:8815";
+        Properties props = new Properties();
+        props.setProperty("user", "admin");
+        props.setProperty("password", "admin");
 
-        try (Connection conn = DriverManager.getConnection(url);
+        try (Connection conn = DriverManager.getConnection(url ,props);
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery("SELECT * from cities order by id")) {
 
@@ -42,7 +46,8 @@ public class OpenDuckJdbcClient {
             }
         }
         
-        
+        System.out.println();
+        System.out.println("End");
         
     }
 }

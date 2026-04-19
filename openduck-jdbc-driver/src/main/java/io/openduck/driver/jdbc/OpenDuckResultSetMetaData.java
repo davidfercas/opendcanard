@@ -11,7 +11,8 @@ public class OpenDuckResultSetMetaData implements ResultSetMetaData {
     private final List<Field> fields;
 
     public OpenDuckResultSetMetaData(VectorSchemaRoot root) {
-        this.fields = root.getSchema().getFields();
+        // Handle cases where root might be null before first batch
+        this.fields = root != null ? root.getSchema().getFields() : java.util.Collections.emptyList();
     }
 
     @Override
@@ -35,59 +36,81 @@ public class OpenDuckResultSetMetaData implements ResultSetMetaData {
 
         if (type instanceof ArrowType.Int) {
             int bits = ((ArrowType.Int) type).getBitWidth();
-            if (bits <= 32) return Types.INTEGER;
-            return Types.BIGINT;
+            return bits <= 32 ? Types.INTEGER : Types.BIGINT;
         }
-
-        if (type instanceof ArrowType.FloatingPoint)
-            return Types.DOUBLE;
-
-        if (type instanceof ArrowType.Bool)
-            return Types.BOOLEAN;
-
-        if (type instanceof ArrowType.Utf8)
-            return Types.VARCHAR;
-
-        if (type instanceof ArrowType.Timestamp)
-            return Types.TIMESTAMP;
+        if (type instanceof ArrowType.FloatingPoint) {
+            ArrowType.FloatingPoint fp = (ArrowType.FloatingPoint) type;
+            return fp.getPrecision() == org.apache.arrow.vector.types.FloatingPointPrecision.SINGLE ? Types.REAL : Types.DOUBLE;
+        }
+        if (type instanceof ArrowType.Bool) return Types.BOOLEAN;
+        if (type instanceof ArrowType.Utf8) return Types.VARCHAR;
+        if (type instanceof ArrowType.Binary) return Types.VARBINARY;
+        if (type instanceof ArrowType.Decimal) return Types.DECIMAL;
+        if (type instanceof ArrowType.Date) return Types.DATE;
+        if (type instanceof ArrowType.Timestamp) return Types.TIMESTAMP;
+        if (type instanceof ArrowType.Time) return Types.TIME;
 
         return Types.OTHER;
     }
 
     @Override
-    public String getColumnTypeName(int column) {
-        return fields.get(column - 1).getType().toString();
+    public int getPrecision(int column) {
+        ArrowType type = fields.get(column - 1).getType();
+        if (type instanceof ArrowType.Decimal) {
+            return ((ArrowType.Decimal) type).getPrecision();
+        }
+        return 0;
     }
 
     @Override
-    public int isNullable(int column) throws SQLException {
-        Field field = fields.get(column - 1);
-
-        if (field.isNullable()) {
-            return ResultSetMetaData.columnNullable;
-        } else {
-            return ResultSetMetaData.columnNoNulls;
+    public int getScale(int column) {
+        ArrowType type = fields.get(column - 1).getType();
+        if (type instanceof ArrowType.Decimal) {
+            return ((ArrowType.Decimal) type).getScale();
         }
+        return 0;
     }
 
-    // ---- Minimal JDBC compliance ----
+    @Override
+    public boolean isSigned(int column) {
+        ArrowType type = fields.get(column - 1).getType();
+        if (type instanceof ArrowType.Int) {
+            return ((ArrowType.Int) type).getIsSigned();
+        }
+        return true; 
+    }
 
+    @Override
+    public int isNullable(int column) {
+        return fields.get(column - 1).isNullable() ? columnNullable : columnNoNulls;
+    }
+
+    // --- Standard Wrapper Logic ---
+
+    @Override
+    public <T> T unwrap(Class<T> iface) throws SQLException {
+        if (iface.isInstance(this)) return iface.cast(this);
+        throw new SQLException("MetaData is not a wrapper for " + iface.getName());
+    }
+
+    @Override
+    public boolean isWrapperFor(Class<?> iface) {
+        return iface != null && iface.isInstance(this);
+    }
+
+    // --- Boilerplate (Satisfying standard JDBC requirements) ---
+
+    @Override public String getColumnTypeName(int column) { return fields.get(column - 1).getType().toString(); }
     @Override public String getTableName(int column) { return ""; }
     @Override public String getSchemaName(int column) { return ""; }
-    @Override public int getPrecision(int column) { return 0; }
-    @Override public int getScale(int column) { return 0; }
     @Override public boolean isAutoIncrement(int column) { return false; }
     @Override public boolean isCaseSensitive(int column) { return true; }
     @Override public boolean isSearchable(int column) { return true; }
     @Override public boolean isCurrency(int column) { return false; }
-    @Override public boolean isSigned(int column) { return true; }
     @Override public int getColumnDisplaySize(int column) { return 20; }
     @Override public String getCatalogName(int column) { return ""; }
     @Override public boolean isReadOnly(int column) { return true; }
     @Override public boolean isWritable(int column) { return false; }
     @Override public boolean isDefinitelyWritable(int column) { return false; }
     @Override public String getColumnClassName(int column) { return Object.class.getName(); }
-
-    @Override public <T> T unwrap(Class<T> iface) { throw new UnsupportedOperationException(); }
-    @Override public boolean isWrapperFor(Class<?> iface) { return false; }
 }

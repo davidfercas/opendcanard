@@ -1,180 +1,149 @@
 package io.openduck.driver.jdbc;
 
 import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.SQLWarning;
-import java.sql.Statement;
-import java.util.ArrayList;
+import java.sql.*;
+import java.util.*;
 import java.util.Base64;
-import java.util.List;
 
-import org.apache.arrow.flight.CallHeaders;
-import org.apache.arrow.flight.CallOption;
-import org.apache.arrow.flight.FlightCallHeaders;
-import org.apache.arrow.flight.FlightClient;
-import org.apache.arrow.flight.FlightDescriptor;
-import org.apache.arrow.flight.FlightEndpoint;
-import org.apache.arrow.flight.FlightInfo;
-import org.apache.arrow.flight.FlightStream;
-import org.apache.arrow.flight.HeaderCallOption;
+import org.apache.arrow.flight.*;
 import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.vector.VectorLoader;
-import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.VectorUnloader;
-import org.apache.arrow.vector.ipc.message.ArrowRecordBatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-
 
 public class OpenDuckStatement implements Statement {
+    private static final Logger logger = LogManager.getLogger(OpenDuckStatement.class);
 
-    private static final Logger logger = LogManager.getLogger(OpenDuckStatement.class);	
-	
-	private final FlightClient client;
-	private final BufferAllocator allocator;
-	private final Connection connection;
-	private final String token;
-	private final String username;
-	private final String password;
-	
-	
+    private final FlightClient client;
+    private final BufferAllocator allocator;
+    private final Connection connection;
+    private final String username;
+    private final String password;
+
     private ResultSet currentRs;
-
+    private long updateCount = -1; // -1 indicates no update count or a result set is present
     private int queryTimeout = 0;
-    private int maxRows = 100;
-    private int fetchSize = 100;
+    private int maxRows = 0;
+    private int fetchSize = 1024;
     private boolean closed = false;
-    
-    /** Creates a CallOption for Basic Authentication (User/Pass) */
-    private static CallOption createBasicAuthOption(String user, String pass) {
+
+    public OpenDuckStatement(Connection connection, FlightClient client, BufferAllocator allocator, String username, String password) {
+        this.connection = connection;
+        this.client = client;
+        this.allocator = allocator;
+        this.username = username;
+        this.password = password;
+    }
+
+    @Override
+    public ResultSet executeQuery(String sql) throws SQLException {
+        if (execute(sql)) {
+            return currentRs;
+        }
+        throw new SQLException("SQL statement did not return a result set.");
+    }
+
+    @Override
+    public int executeUpdate(String sql) throws SQLException {
+        execute(sql);
+        return (int) (updateCount != -1 ? updateCount : 0);
+    }
+
+    @Override
+    public boolean execute(String sql) throws SQLException {
+        checkClosed();
+        closeCurrentResults();
+
+        try {
+            CallOption auth = createBasicAuthOption(this.username, this.password);
+            FlightDescriptor descriptor = FlightDescriptor.command(sql.getBytes(StandardCharsets.UTF_8));
+            
+            // 1. Get FlightInfo to see where data is and how many rows (if known)
+            FlightInfo info = client.getInfo(descriptor, auth);
+            
+            // 2. Determine if this is a query (Result Set) or an update
+            if (info.getEndpoints().isEmpty()) {
+                // Likely a DDL/DML with no return data
+                this.updateCount = info.getRecords() != -1 ? info.getRecords() : 0;
+                this.currentRs = null;
+                return false;
+            } else {
+                // 3. Instead of copying batches here, we pass the info to the ResultSet
+                // The ResultSet will manage the FlightStream lifecycle.
+                this.currentRs = new OpenDuckResultSet(this, info, auth);
+                this.updateCount = -1;
+                return true;
+            }
+        } catch (Exception e) {
+            throw new SQLException("Error executing OpenDuck query: " + e.getMessage(), e);
+        }
+    }
+
+    private void closeCurrentResults() throws SQLException {
+        if (currentRs != null) {
+            currentRs.close();
+            currentRs = null;
+        }
+    }
+
+    private void checkClosed() throws SQLException {
+        if (closed) throw new SQLException("Statement is closed");
+    }
+
+    private CallOption createBasicAuthOption(String user, String pass) {
+        if (user == null || pass == null) return new HeaderCallOption(new FlightCallHeaders());
         String combined = user + ":" + pass;
         String encoded = Base64.getEncoder().encodeToString(combined.getBytes(StandardCharsets.UTF_8));
-        
         CallHeaders headers = new FlightCallHeaders();
         headers.insert("Authorization", "Basic " + encoded);
         return new HeaderCallOption(headers);
-    }    
-    
-	public OpenDuckStatement(Connection connection, FlightClient client, org.apache.arrow.memory.BufferAllocator allocator, String token, String username, String password) {
-		this.connection = connection;
-		this.client = client;
-		this.allocator = allocator;
-		this.token = token;
-		this.username = username;
-		this.password = password;
-	}
+    }
 
-	@Override
-	public ResultSet executeQuery(String sql) throws SQLException {
-		try {
+    @Override
+    public void close() throws SQLException {
+        closeCurrentResults();
+        this.closed = true;
+    }
 
-			List<VectorSchemaRoot> batches = new ArrayList<>();
+    // --- Standard JDBC Getters/Setters ---
 
-			FlightDescriptor descriptor = FlightDescriptor.command(sql.getBytes(StandardCharsets.UTF_8));
+    @Override public Connection getConnection() { return connection; }
+    @Override public int getQueryTimeout() { return queryTimeout; }
+    @Override public void setQueryTimeout(int seconds) { this.queryTimeout = seconds; }
+    @Override public int getMaxRows() { return maxRows; }
+    @Override public void setMaxRows(int max) { this.maxRows = max; }
+    @Override public int getFetchSize() { return fetchSize; }
+    @Override public void setFetchSize(int rows) { this.fetchSize = rows; }
+    @Override public boolean isClosed() { return closed; }
+    @Override public int getUpdateCount() { return (int) updateCount; }
+    @Override public ResultSet getResultSet() { return currentRs; }
 
-			// 1. Create a new headers container
-			//FlightCallHeaders headers = new FlightCallHeaders();
+    @Override
+    public boolean getMoreResults() throws SQLException {
+        closeCurrentResults();
+        return false;
+    }
 
-			// 2. Add your custom headers (Key-Value pairs)
-			// headers.insert("Authorization", "Bearer your-secret-token");
-			//headers.insert("x-tenant-id", "openduck-01");
+    // --- Boilerplate and Wrappers ---
 
-			// 3. Instantiate the CallOption using the headers
-			//HeaderCallOption headerOption = new HeaderCallOption(headers);
+    @Override
+    public <T> T unwrap(Class<T> iface) throws SQLException {
+        if (iface.isInstance(this)) return iface.cast(this);
+        throw new SQLException("Not a wrapper for " + iface.getName());
+    }
 
+    @Override
+    public boolean isWrapperFor(Class<?> iface) {
+        return iface.isInstance(this);
+    }
 
-//	        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
-//	        String username = "admin";
-//	        String rawPassword = "admin";
-	        
-	        CallOption basicAuth = createBasicAuthOption(this.username, this.password);
-			
-			
-			FlightInfo info = client.getInfo(descriptor, basicAuth);
+    // Explicitly throw Not Supported for complex JDBC features
+    private SQLException unsupported(String feature) {
+        return new SQLFeatureNotSupportedException("OpenDuck doesn't support " + feature);
+    }
 
-			List<FlightEndpoint> endpoints = info.getEndpoints();
-
-			// THIS is where the snippet goes
-			try (FlightStream stream = client.getStream(endpoints.get(0).getTicket(), basicAuth)) {
-				while (stream.next()) {
-			        VectorSchemaRoot root = stream.getRoot();
-			        
-			        // THIS is where you call deepCopyRoot
-			        VectorSchemaRoot copy = deepCopyRoot(root, allocator);
-			        
-			        batches.add(copy);
-				}
-			} catch (Exception e) {
-				throw new SQLException("Error reading Flight stream", e);
-			}
-
-			currentRs = new OpenDuckResultSet(batches); 
-			return currentRs;
-
-		} catch (Exception e) {
-			throw new SQLException(e);
-		}
-	}
-
-	public static VectorSchemaRoot deepCopyRoot(VectorSchemaRoot original, BufferAllocator allocator) {
-
-
-	    VectorSchemaRoot copy =
-	        VectorSchemaRoot.create(original.getSchema(), allocator);
-
-	    VectorUnloader unloader = new VectorUnloader(original);
-	    ArrowRecordBatch batch = unloader.getRecordBatch();
-
-	    VectorLoader loader = new VectorLoader(copy);
-	    loader.load(batch);
-
-	    batch.close(); // VERY important
-
-	    return copy;
-	}
-
-	@Override
-	public void close() {
-		try {
-			if (this.currentRs!=null) {
-				this.currentRs.close();
-				this.closed = true;
-			}
-		} catch (SQLException e) {
-			logger.error(e);
-		}
-	}
-
-	@Override
-	public boolean execute(String sql) throws SQLException {
-		currentRs = executeQuery(sql);
-		return true;
-	}
-
-	private RuntimeException unsupported() {
-		return new RuntimeException("Not implemented");
-	}
-
-	@Override
-	public <T> T unwrap(Class<T> iface) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public boolean isWrapperFor(Class<?> iface) throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
-	}
-
-	@Override
-	public int executeUpdate(String sql) throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
-	}
+    @Override public void addBatch(String sql) throws SQLException { throw unsupported("batching"); }
+    @Override public int[] executeBatch() throws SQLException { throw unsupported("batching"); }
+    @Override public void cancel() throws SQLException { throw unsupported("query cancellation"); }
 
 	@Override
 	public int getMaxFieldSize() throws SQLException {
@@ -185,145 +154,26 @@ public class OpenDuckStatement implements Statement {
 	@Override
 	public void setMaxFieldSize(int max) throws SQLException {
 		// TODO Auto-generated method stub
-
-	}
-
-	@Override
-	public int getMaxRows() throws SQLException {
-		return this.maxRows;
-	}
-
-	@Override
-	public void setMaxRows(int max) throws SQLException {
-		this.maxRows = max;
-
+		
 	}
 
 	@Override
 	public void setEscapeProcessing(boolean enable) throws SQLException {
 		// TODO Auto-generated method stub
-
+		
 	}
 
-	@Override
-	public int getQueryTimeout() throws SQLException {
-		return this.queryTimeout;
-	}
-
-	@Override
-	public void setQueryTimeout(int seconds) throws SQLException {
-		this.queryTimeout = seconds;
-
-	}
-
-	@Override
-	public void cancel() throws SQLException {
-		// TODO Auto-generated method stub
-
-	}
-
-	@Override
-	public SQLWarning getWarnings() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public void clearWarnings() throws SQLException {
-		// TODO Auto-generated method stub
-
-	}
 
 	@Override
 	public void setCursorName(String name) throws SQLException {
 		// TODO Auto-generated method stub
-
-	}
-
-	@Override
-	public ResultSet getResultSet() throws SQLException {
-		return currentRs;  
-	}
-
-	@Override
-	public int getUpdateCount() throws SQLException {
-		return 0;
-	}
-
-	@Override
-	public boolean getMoreResults() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
-	}
-
-	@Override
-	public void setFetchDirection(int direction) throws SQLException {
-		// TODO Auto-generated method stub
-
-	}
-
-	@Override
-	public int getFetchDirection() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
-	}
-
-	@Override
-	public void setFetchSize(int rows) throws SQLException {
-		this.fetchSize = rows;
-
-	}
-
-	@Override
-	public int getFetchSize() throws SQLException {
-		return this.fetchSize;
-	}
-
-	@Override
-	public int getResultSetConcurrency() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
-	}
-
-	@Override
-	public int getResultSetType() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
-	}
-
-	@Override
-	public void addBatch(String sql) throws SQLException {
-		// TODO Auto-generated method stub
-
-	}
-
-	@Override
-	public void clearBatch() throws SQLException {
-		// TODO Auto-generated method stub
-
-	}
-
-	@Override
-	public int[] executeBatch() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public Connection getConnection() throws SQLException {
-		return this.connection;
+		
 	}
 
 	@Override
 	public boolean getMoreResults(int current) throws SQLException {
 		// TODO Auto-generated method stub
 		return false;
-	}
-
-	@Override
-	public ResultSet getGeneratedKeys() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
 	}
 
 	@Override
@@ -362,44 +212,72 @@ public class OpenDuckStatement implements Statement {
 		return false;
 	}
 
-	@Override
-	public int getResultSetHoldability() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
-	}
 
-	@Override
-	public boolean isClosed() throws SQLException {
-		return this.closed;
-	}
+    @Override
+    public void setFetchDirection(int direction) throws SQLException {
+        if (direction != ResultSet.FETCH_FORWARD) {
+            throw new SQLException("Only FETCH_FORWARD is supported");
+        }
+    }
 
-	@Override
-	public void setPoolable(boolean poolable) throws SQLException {
-		// TODO Auto-generated method stub
+    @Override
+    public int getFetchDirection() {
+        return ResultSet.FETCH_FORWARD;
+    }
 
-	}
+    @Override
+    public int getResultSetConcurrency() {
+        return ResultSet.CONCUR_READ_ONLY;
+    }
 
-	@Override
-	public boolean isPoolable() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
-	}
+    @Override
+    public int getResultSetType() {
+        return ResultSet.TYPE_FORWARD_ONLY;
+    }
 
-	@Override
-	public void closeOnCompletion() throws SQLException {
-		// TODO Auto-generated method stub
+    @Override
+    public void clearBatch() throws SQLException {
+        // No-op for now
+    }
 
-	}
+    @Override
+    public int getResultSetHoldability() {
+        return ResultSet.CLOSE_CURSORS_AT_COMMIT;
+    }
 
-	@Override
-	public boolean isCloseOnCompletion() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
-	}
+    @Override
+    public void setPoolable(boolean poolable) {
+        // Logic for connection pools
+    }
 
-    // --- Delegation for DBeaver internal wrapper ---
-    public Statement getOriginal() {
-        return this; // IMPORTANT: avoid null
+    @Override
+    public boolean isPoolable() {
+        return false;
+    }
+
+    @Override
+    public void closeOnCompletion() {
+        // Optional JDBC 4.1 feature
+    }
+
+    @Override
+    public boolean isCloseOnCompletion() {
+        return false;
+    }
+
+    @Override
+    public ResultSet getGeneratedKeys() throws SQLException {
+        return null; // DuckDB doesn't return generated keys via Flight this way
+    }
+
+    @Override
+    public SQLWarning getWarnings() {
+        return null;
+    }
+
+    @Override
+    public void clearWarnings() {
+        // No-op
     }
 
 }
