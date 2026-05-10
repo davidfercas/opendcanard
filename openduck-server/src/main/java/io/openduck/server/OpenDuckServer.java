@@ -4,10 +4,14 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
 import org.apache.arrow.adapter.jdbc.JdbcToArrowConfig;
 import org.apache.arrow.adapter.jdbc.JdbcToArrowConfigBuilder;
@@ -33,6 +37,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import io.javalin.Javalin;
 import io.openduck.auth.OpenDuckAuthenticator;
 import io.openduck.conf.Config;
 import io.openduck.util.DuckDBArrowUtil;
@@ -43,7 +48,10 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 	private final Connection metadatadb;
 	private final FlightServer server;
 	private final BufferAllocator allocator;
+	private final Javalin restServer; // New REST server instance
 
+	private int restPort = 8080;
+	
 	private static final Logger logger = LogManager.getLogger(OpenDuckServer.class);
 
 	public static void main(String[] args) throws Exception {
@@ -76,7 +84,7 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 		}
 	}
 
-	public OpenDuckServer(String host, int port, String metadataPath, String duckdbPath, BufferAllocator allocator)
+	public OpenDuckServer(String host, int arrowPort, String metadataPath, String duckdbPath, BufferAllocator allocator)
 			throws Exception {
 
 		// Embedded DuckDB
@@ -115,7 +123,7 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 			throw e;
 		}
 		// Flight gRPC location
-		Location location = Location.forGrpcInsecure(host, port);
+		Location location = Location.forGrpcInsecure(host, arrowPort);
 
 		// Build server
 		this.allocator = allocator;
@@ -123,22 +131,128 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 		this.server = FlightServer.builder(this.allocator, location, this).headerAuthenticator(new OpenDuckAuthenticator(this.metadatadb)).build();
 		//this.server = FlightServer.builder(this.allocator, location, this).headerAuthenticator(CallHeaderAuthenticator.NO_OP).build(); 
 		
+		// 3. REST API Setup (using Javalin)
+        this.restServer = Javalin.create(config -> {
+            config.showJavalinBanner = false;
+        });
+        
+        // Set REST API port
+        this.restPort = Config.getInt("openduck.rest.port");
 		
+        setupRestRoutes();
 
 	}
 
+	
+	private void setupRestRoutes() {
+        // Example: Get server status
+        restServer.get("/health", ctx -> {
+            ctx.json(Map.of("status", "UP", "engine", "DuckDB"));
+        });
+
+        // Example: Manage the server (e.g., check metadata)
+        restServer.get("/management/databases", ctx -> {
+            List<Map<String, Object>> databases = new ArrayList<>();
+            
+            // Query the DuckDB catalog
+            try (Statement stmt = this.duckdb.createStatement();
+                 ResultSet rs = stmt.executeQuery("PRAGMA show_databases;")) {
+                
+                while (rs.next()) {
+                    databases.add(Map.of(
+                    		"name", rs.getString("database_name")//,
+                       //     "path", rs.getString("database_path"),
+                        //    "readonly", rs.getBoolean("readonly")
+                    ));
+                }
+                
+                ctx.json(databases);
+            } catch (SQLException e) {
+                logger.error("Failed to fetch databases", e);
+                ctx.status(500).result("Internal Server Error: " + e.getMessage());
+            }
+        });
+
+
+        restServer.get("/management/schemas", ctx -> {
+            List<Map<String, Object>> databases = new ArrayList<>();
+            
+            // Query the DuckDB catalog
+            try (Statement stmt = this.duckdb.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT * FROM duckdb_schemas();")) {
+                
+                while (rs.next()) {
+                    databases.add(Map.of(
+                    		"oid", rs.getLong("oid"),
+                            "database_name", rs.getString("database_name"),
+                            "database_oid", rs.getLong("database_oid"),
+                            "schema_name", rs.getString("schema_name"),
+                            "comment", rs.getString("comment") != null ? rs.getString("comment") : "",
+                            "tags", rs.getObject("tags") != null ? rs.getObject("tags") : Collections.emptyMap(),
+                            "internal", rs.getBoolean("internal"),
+                            "sql", rs.getString("sql") != null ? rs.getString("sql") : ""
+                    ));
+                }
+                
+                ctx.json(databases);
+            } catch (SQLException e) {
+                logger.error("Failed to fetch databases", e);
+                ctx.status(500).result("Internal Server Error: " + e.getMessage());
+            }
+        });
+ 
+        
+        restServer.get("/management/users", ctx -> {
+            List<Map<String, Object>> databases = new ArrayList<>();
+            
+            // Query the DuckDB catalog
+            try (Statement stmt = this.metadatadb.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT * FROM openduck_users;")) {
+                
+                while (rs.next()) {
+                    databases.add(Map.of(
+                    		"id", rs.getObject("id").toString(),
+                            "username", rs.getString("username"),
+                            "role", rs.getString("role") != null ? rs.getString("role") : "USER",
+                            "created_at", rs.getTimestamp("created_at").toString()
+                    ));
+                }
+                
+                ctx.json(databases);
+            } catch (SQLException e) {
+                logger.error("Failed to fetch databases", e);
+                ctx.status(500).result("Internal Server Error: " + e.getMessage());
+            }
+        });        
+        
+        // Example: Shutdown via API (use with caution!)
+        restServer.post("/management/shutdown", ctx -> {
+            ctx.result("Shutting down...");
+            System.exit(0);
+        });
+    }
+	
 	public void start() throws Exception {
 		logger.info("Starting OpenDuck Server");
 		server.start();
 		System.out.println("OpenDuck Server started at " + server.getLocation());
 		logger.info("OpenDuck Server started at " + server.getLocation());
+		
+		// Start REST Server (use a different port from Config)
+        
+        restServer.start(this.restPort);
+        
+        System.out.println("REST API started at http://localhost:" + this.restPort);
+		
+		
 	}
 
 	@Override
 	public void close() throws Exception {
 		logger.info("Stopping OpenDuck Server");
-		server.close();
-		duckdb.close();
+		this.server.close();
+		this.duckdb.close();
+		this.restServer.stop();
 		logger.info("OpenDuck Server stopped");
 	}
 
