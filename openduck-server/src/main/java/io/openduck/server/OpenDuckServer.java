@@ -36,10 +36,15 @@ import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
+import io.grpc.internal.LogExceptionRunnable;
 import io.javalin.Javalin;
+import io.javalin.http.ForbiddenResponse;
 import io.openduck.auth.OpenDuckAuthenticator;
 import io.openduck.conf.Config;
+import io.openduck.user.User;
+import io.openduck.user.UserRepository;
 import io.openduck.util.DuckDBArrowUtil;
 
 public class OpenDuckServer implements FlightProducer, AutoCloseable {
@@ -51,6 +56,8 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 	private final Javalin restServer; // New REST server instance
 
 	private int restPort = 8080;
+
+	private final String JWT_SECRET = "your-super-secret-key-change-this";
 	
 	private static final Logger logger = LogManager.getLogger(OpenDuckServer.class);
 
@@ -145,6 +152,52 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 
 	
 	private void setupRestRoutes() {
+		
+	
+		// PUBLIC LOGIN: Exchange credentials for a Token
+	    restServer.post("/api/login", ctx -> {
+	        Map<String, String> body = ctx.bodyAsClass(Map.class);
+	        String username = body.get("username");
+	        String password = body.get("password");
+
+	        User user = authenticateUser(username, password);
+	       
+	        if (user!=null) {
+	            // Generate the token
+	            String token = com.auth0.jwt.JWT.create()
+	                .withClaim("username", user.getUsername())
+	                .withArrayClaim("roles", user.getRoles().toArray(new String[0]))
+	                .withExpiresAt(new java.util.Date(System.currentTimeMillis() + 3600000)) // 1 hour
+	                .sign(com.auth0.jwt.algorithms.Algorithm.HMAC256(JWT_SECRET));
+
+	            ctx.json(Map.of("token", token));
+	        } else {
+	            throw new io.javalin.http.UnauthorizedResponse("Invalid Credentials");
+	        }
+	    });
+
+	    // MIDDLEWARE: Protect management routes using the Token
+	    restServer.before("/management/*", ctx -> {
+	        String authHeader = ctx.header("Authorization");
+	        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+	            throw new io.javalin.http.UnauthorizedResponse("Missing Token");
+	        }
+	        
+	        try {
+	            String token = authHeader.substring(7);
+	            var verifier = com.auth0.jwt.JWT.require(com.auth0.jwt.algorithms.Algorithm.HMAC256(JWT_SECRET)).build();
+	            var decoded = verifier.verify(token);
+	         // Extract the list of roles from the JWT
+	            List<String> roles = decoded.getClaim("roles").asList(String.class);
+	            
+	            // Attach to context so specific routes can check them
+	            ctx.attribute("userRoles", roles);
+	            ctx.attribute("username", decoded.getClaim("username").asString());
+	        } catch (Exception e) {
+	            throw new io.javalin.http.UnauthorizedResponse("Invalid Token");
+	        }
+	    });
+		
         // Example: Get server status
         restServer.get("/health", ctx -> {
             ctx.json(Map.of("status", "UP", "engine", "DuckDB"));
@@ -153,6 +206,12 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
         // Example: Manage the server (e.g., check metadata)
         restServer.get("/management/databases", ctx -> {
             List<Map<String, Object>> databases = new ArrayList<>();
+            
+            List<String> roles = ctx.attribute("userRoles");
+            
+            if (roles == null || !roles.contains("ADMIN")) {
+                throw new ForbiddenResponse("You need the ADMIN role to perform this action.");
+            }
             
             // Query the DuckDB catalog
             try (Statement stmt = this.duckdb.createStatement();
@@ -176,6 +235,12 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 
         restServer.get("/management/schemas", ctx -> {
             List<Map<String, Object>> databases = new ArrayList<>();
+            
+            List<String> roles = ctx.attribute("userRoles");
+            
+            if (roles == null || !roles.contains("ADMIN")) {
+                throw new ForbiddenResponse("You need the ADMIN role to perform this action.");
+            }
             
             // Query the DuckDB catalog
             try (Statement stmt = this.duckdb.createStatement();
@@ -205,6 +270,12 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
         restServer.get("/management/users", ctx -> {
             List<Map<String, Object>> databases = new ArrayList<>();
             
+            List<String> roles = ctx.attribute("userRoles");
+            
+            if (roles == null || !roles.contains("ADMIN")) {
+                throw new ForbiddenResponse("You need the ADMIN role to perform this action.");
+            }
+            
             // Query the DuckDB catalog
             try (Statement stmt = this.metadatadb.createStatement();
                  ResultSet rs = stmt.executeQuery("SELECT * FROM openduck_users;")) {
@@ -232,6 +303,31 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
         });
     }
 	
+	private User authenticateUser(String username, String password) {
+
+		// Decode and verify credentials...
+		BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
+
+		UserRepository userRepository = new UserRepository();
+		
+		try {
+			User user = userRepository.getUser(this.metadatadb, username);
+			if (user == null || password == null) {
+				return null;
+			}
+			if (encoder.matches(password, user.getPasswordHash())) {
+				return user;
+			}
+			return null;
+			
+		} catch (Exception e) {
+			logger.error(e);
+			return null;
+		}
+		
+		
+	}
+
 	public void start() throws Exception {
 		logger.info("Starting OpenDuck Server");
 		server.start();

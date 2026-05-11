@@ -4,6 +4,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.util.ArrayList;
 
 public class UserRepository {
 
@@ -32,7 +33,7 @@ public class UserRepository {
                 String user = rs.getString("username");
                 String passwordHash = rs.getString("password_hash");
 
-                return new User(user, passwordHash);
+                return new User(user, passwordHash, new ArrayList<String>());
             }
 
             return null;
