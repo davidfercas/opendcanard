@@ -1,0 +1,77 @@
+<assembly
+	xmlns="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/1.1.3"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/1.1.3
+          https://maven.apache.org/xsd/assembly-1.1.3.xsd">
+
+	<id>dist</id>
+
+	<formats>
+		<format>dir</format>
+		<format>zip</format>
+	</formats>
+
+	<includeBaseDirectory>true</includeBaseDirectory>
+	<baseDirectory>openduck</baseDirectory>
+
+	<!-- ================= FILES ================= -->
+	<fileSets>
+
+		<!-- BIN -->
+		<fileSet>
+			<directory>src/main/scripts</directory>
+			<outputDirectory>bin</outputDirectory>
+			<fileMode>0755</fileMode>
+			<includes>
+				<include>**/*</include>
+			</includes>
+		</fileSet>
+
+		<!-- CONF -->
+		<fileSet>
+			<directory>src/conf</directory>
+			<outputDirectory>conf</outputDirectory>
+			<includes>
+				<include>**/*</include>
+			</includes>
+		</fileSet>
+
+		<!-- MAIN JAR -->
+		<fileSet>
+			<directory>${project.build.directory}</directory>
+			<outputDirectory>lib</outputDirectory>
+			<includes>
+				<include>${project.build.finalName}.jar</include>
+			</includes>
+		</fileSet>
+
+		<fileSet>
+			<directory>data</directory>
+			<outputDirectory>data</outputDirectory>
+		</fileSet>
+
+		<fileSet>
+			<directory>metadata</directory>
+			<outputDirectory>metadata</outputDirectory>
+		</fileSet>
+
+		<fileSet>
+			<directory>logs</directory>
+			<outputDirectory>logs</outputDirectory>
+		</fileSet>
+
+	</fileSets>
+
+	<!-- ================= DEPENDENCIES ================= -->
+	<dependencySets>
+
+		<dependencySet>
+			<outputDirectory>lib/external</outputDirectory>
+			<useProjectArtifact>false</useProjectArtifact>
+			<scope>runtime</scope>
+			<unpack>false</unpack>
+		</dependencySet>
+
+	</dependencySets>
+
+</assembly>

@@ -1,10 +1,10 @@
 package io.openduck.user;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.ArrayList;
+import java.util.List;
 
 public class UserRepository {
 
@@ -21,7 +21,7 @@ public class UserRepository {
 
 	public User getUser(Connection metadatadb, String username) throws Exception {
 
-        String sql = "SELECT username, password_hash FROM main.openduck_users WHERE username = ?;";
+        String sql = "SELECT username, password_hash, role FROM main.openduck_users WHERE username = ?;";
 
         try (PreparedStatement stmt = metadatadb.prepareStatement(sql)) {
 
@@ -32,8 +32,12 @@ public class UserRepository {
             if (rs.next()) {
                 String user = rs.getString("username");
                 String passwordHash = rs.getString("password_hash");
+                String role = rs.getString("role");
 
-                return new User(user, passwordHash, new ArrayList<String>());
+                List<String> roles = new ArrayList<String>();
+                roles.add(role);
+                
+                return new User(user, passwordHash, roles);
             }
 
             return null;

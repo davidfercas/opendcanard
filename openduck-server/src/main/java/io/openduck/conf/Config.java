@@ -1,6 +1,9 @@
 package io.openduck.conf;
 
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Properties;
 
 public class Config {
@@ -8,11 +11,18 @@ public class Config {
     private static final Properties PROPS = new Properties();
 
     static {
-        try (InputStream is = Config.class.getClassLoader().getResourceAsStream("openduck.properties")) {
-            if (is == null) {
-                throw new RuntimeException("app.properties not found on classpath");
+        try {
+            String confDir = System.getProperty("conf.dir");
+            if (confDir == null) {
+                throw new RuntimeException("conf.dir system property not set");
             }
-            PROPS.load(is);
+
+            Path file = Paths.get(confDir, "openduck.properties");
+
+            try (InputStream is = Files.newInputStream(file)) {
+                PROPS.load(is);
+            }
+
         } catch (Exception e) {
             throw new RuntimeException("Failed to load configuration", e);
         }

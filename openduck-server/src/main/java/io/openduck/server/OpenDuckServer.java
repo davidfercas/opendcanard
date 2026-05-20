@@ -1,6 +1,8 @@
 package io.openduck.server;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -61,17 +63,48 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 	
 	private static final Logger logger = LogManager.getLogger(OpenDuckServer.class);
 
+	
+    public static final String CONF_DIR;
+    public static final String DATA_DIR;
+    public static final String LOG_DIR;
+    public static final String METADATA_DIR;
+
+    static {
+    	System.out.println("Loading properties");
+        CONF_DIR = require("conf.dir");
+        DATA_DIR = require("data.dir");
+        LOG_DIR = require("log.dir");
+        METADATA_DIR = require("metadata.dir");
+    }
+
+    private static String require(String key) {
+        String value = System.getProperty(key);
+        if (value == null || value.isEmpty()) {
+        	System.out.println("Missing system property: " + key);
+            throw new IllegalStateException("Missing system property: " + key);
+        }
+        return value;
+    }
+	
 	public static void main(String[] args) throws Exception {
 
 		// -Djava.io.tmpdir=/path/to/a/bigger/disk/folder
 		// Standard practice: Use try-with-resources to prevent memory leaks
+		
+		System.out.println("CONF DIR = " + CONF_DIR);
+		System.out.println("DATA DIR = " + DATA_DIR);
+		System.out.println("METADATA DIR = " + METADATA_DIR);
+		System.out.println("LOG DIR = " + LOG_DIR);
+		
+		Path openduckdb = Paths.get(DATA_DIR, Config.get("openduck.db")).toAbsolutePath().normalize();		
+		Path metadatadb = Paths.get(METADATA_DIR, Config.get("metadatadb.db")).toAbsolutePath().normalize();
+		
 		try (BufferAllocator rootAllocator = new RootAllocator(Config.getInt("arrow.memory.mb") * 1024L * 1024L)) {
 			// You now have a BufferAllocator instance!
 			// By default, it has no limit, but you can set one:
 			// new RootAllocator(1024 * 1024 * 1024L); // 1GB Limit
-
 			OpenDuckServer server = new OpenDuckServer(Config.get("openduck.host"), Config.getInt("openduck.port"),
-					Config.get("metadatadb.db"), Config.get("openduck.db"), rootAllocator);
+					metadatadb.toString().replace("\\", "/"), openduckdb.toString().replace("\\", "/"), rootAllocator);
 
 			Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 				try {
@@ -94,6 +127,8 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 	public OpenDuckServer(String host, int arrowPort, String metadataPath, String duckdbPath, BufferAllocator allocator)
 			throws Exception {
 
+		
+		
 		// Embedded DuckDB
 		try {
 			this.duckdb = DriverManager.getConnection("jdbc:duckdb:" + duckdbPath);
@@ -209,7 +244,7 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
             
             List<String> roles = ctx.attribute("userRoles");
             
-            if (roles == null || !roles.contains("ADMIN")) {
+            if (roles == null || !roles.contains("admin")) {
                 throw new ForbiddenResponse("You need the ADMIN role to perform this action.");
             }
             
@@ -238,7 +273,7 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
             
             List<String> roles = ctx.attribute("userRoles");
             
-            if (roles == null || !roles.contains("ADMIN")) {
+            if (roles == null || !roles.contains("admin")) {
                 throw new ForbiddenResponse("You need the ADMIN role to perform this action.");
             }
             
@@ -272,7 +307,7 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
             
             List<String> roles = ctx.attribute("userRoles");
             
-            if (roles == null || !roles.contains("ADMIN")) {
+            if (roles == null || !roles.contains("admin")) {
                 throw new ForbiddenResponse("You need the ADMIN role to perform this action.");
             }
             
