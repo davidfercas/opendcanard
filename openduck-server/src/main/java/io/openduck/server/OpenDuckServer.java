@@ -43,6 +43,8 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import io.grpc.internal.LogExceptionRunnable;
 import io.javalin.Javalin;
 import io.javalin.http.ForbiddenResponse;
+import io.javalin.openapi.plugin.OpenApiPlugin;
+import io.javalin.openapi.plugin.swagger.SwaggerPlugin;
 import io.openduck.auth.OpenDuckAuthenticator;
 import io.openduck.conf.Config;
 import io.openduck.user.User;
@@ -175,36 +177,49 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 		
 		// 3. REST API Setup (using Javalin)
         this.restServer = Javalin.create(config -> {
-            config.showJavalinBanner = false;
+            // Registered exactly as per the doc structure
+            config.registerPlugin(new OpenApiPlugin(openapi -> {
+                openapi.withDefinitionConfiguration((version, builder) -> {
+                    builder.info(info -> {
+                        info.title("OpenDuck API");
+                        info.description("REST API to interact with OpenDuck server");
+                    });
+                });
+            }));
+
+            config.registerPlugin(new SwaggerPlugin());
+            
+            // Set port and handle routes encapsulation
+            config.jetty.port = this.restPort;
+            setupRestRoutes(config.routes);
         });
         
+
+		
         // Set REST API port
         this.restPort = Config.getInt("openduck.rest.port");
 		
-        setupRestRoutes();
+       // setupRestRoutes();
 
 	}
 
 	
-	private void setupRestRoutes() {
+	private void setupRestRoutes(io.javalin.config.RoutesConfig routes) {
 		
-	
-		// PUBLIC LOGIN: Exchange credentials for a Token
-	    restServer.post("/api/login", ctx -> {
+	    // PUBLIC LOGIN: Exchange credentials for a Token
+	    routes.post("/api/login", ctx -> {
 	        Map<String, String> body = ctx.bodyAsClass(Map.class);
 	        String username = body.get("username");
 	        String password = body.get("password");
-
 	        User user = authenticateUser(username, password);
 	       
-	        if (user!=null) {
+	        if (user != null) {
 	            // Generate the token
 	            String token = com.auth0.jwt.JWT.create()
 	                .withClaim("username", user.getUsername())
 	                .withArrayClaim("roles", user.getRoles().toArray(new String[0]))
 	                .withExpiresAt(new java.util.Date(System.currentTimeMillis() + 3600000)) // 1 hour
 	                .sign(com.auth0.jwt.algorithms.Algorithm.HMAC256(JWT_SECRET));
-
 	            ctx.json(Map.of("token", token));
 	        } else {
 	            throw new io.javalin.http.UnauthorizedResponse("Invalid Credentials");
@@ -212,7 +227,7 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 	    });
 
 	    // MIDDLEWARE: Protect management routes using the Token
-	    restServer.before("/management/*", ctx -> {
+	    routes.before("/management/*", ctx -> {
 	        String authHeader = ctx.header("Authorization");
 	        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
 	            throw new io.javalin.http.UnauthorizedResponse("Missing Token");
@@ -222,7 +237,7 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 	            String token = authHeader.substring(7);
 	            var verifier = com.auth0.jwt.JWT.require(com.auth0.jwt.algorithms.Algorithm.HMAC256(JWT_SECRET)).build();
 	            var decoded = verifier.verify(token);
-	         // Extract the list of roles from the JWT
+	            // Extract the list of roles from the JWT
 	            List<String> roles = decoded.getClaim("roles").asList(String.class);
 	            
 	            // Attach to context so specific routes can check them
@@ -233,110 +248,108 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 	        }
 	    });
 		
-        // Example: Get server status
-        restServer.get("/health", ctx -> {
-            ctx.json(Map.of("status", "UP", "engine", "DuckDB"));
-        });
+	    // Example: Get server status
+//	    routes.get("/health", ctx -> {
+//	        ctx.json(Map.of("status", "UP", "engine", "DuckDB"));
+//	    });
 
-        // Example: Manage the server (e.g., check metadata)
-        restServer.get("/management/databases", ctx -> {
-            List<Map<String, Object>> databases = new ArrayList<>();
-            
-            List<String> roles = ctx.attribute("userRoles");
-            
-            if (roles == null || !roles.contains("admin")) {
-                throw new ForbiddenResponse("You need the ADMIN role to perform this action.");
-            }
-            
-            // Query the DuckDB catalog
-            try (Statement stmt = this.duckdb.createStatement();
-                 ResultSet rs = stmt.executeQuery("PRAGMA show_databases;")) {
-                
-                while (rs.next()) {
-                    databases.add(Map.of(
-                    		"name", rs.getString("database_name")//,
-                       //     "path", rs.getString("database_path"),
-                        //    "readonly", rs.getBoolean("readonly")
-                    ));
-                }
-                
-                ctx.json(databases);
-            } catch (SQLException e) {
-                logger.error("Failed to fetch databases", e);
-                ctx.status(500).result("Internal Server Error: " + e.getMessage());
-            }
-        });
+	    routes.get("/health", this::handleHealthCheck);
+	    
+	    // Example: Manage the server (e.g., check metadata)
+	    routes.get("/management/databases", ctx -> {
+	        List<Map<String, Object>> databases = new ArrayList<>();
+	        
+	        List<String> roles = ctx.attribute("userRoles");
+	        
+	        if (roles == null || !roles.contains("admin")) {
+	            throw new io.javalin.http.ForbiddenResponse("You need the ADMIN role to perform this action.");
+	        }
+	        
+	        // Query the DuckDB catalog
+	        try (Statement stmt = this.duckdb.createStatement();
+	             ResultSet rs = stmt.executeQuery("PRAGMA show_databases;")) {
+	            
+	            while (rs.next()) {
+	                databases.add(Map.of(
+	                    "name", rs.getString("database_name")
+	                ));
+	            }
+	            
+	            ctx.json(databases);
+	        } catch (SQLException e) {
+	            logger.error("Failed to fetch databases", e);
+	            ctx.status(500).result("Internal Server Error: " + e.getMessage());
+	        }
+	    });
 
-
-        restServer.get("/management/schemas", ctx -> {
-            List<Map<String, Object>> databases = new ArrayList<>();
-            
-            List<String> roles = ctx.attribute("userRoles");
-            
-            if (roles == null || !roles.contains("admin")) {
-                throw new ForbiddenResponse("You need the ADMIN role to perform this action.");
-            }
-            
-            // Query the DuckDB catalog
-            try (Statement stmt = this.duckdb.createStatement();
-                 ResultSet rs = stmt.executeQuery("SELECT * FROM duckdb_schemas();")) {
-                
-                while (rs.next()) {
-                    databases.add(Map.of(
-                    		"oid", rs.getLong("oid"),
-                            "database_name", rs.getString("database_name"),
-                            "database_oid", rs.getLong("database_oid"),
-                            "schema_name", rs.getString("schema_name"),
-                            "comment", rs.getString("comment") != null ? rs.getString("comment") : "",
-                            "tags", rs.getObject("tags") != null ? rs.getObject("tags") : Collections.emptyMap(),
-                            "internal", rs.getBoolean("internal"),
-                            "sql", rs.getString("sql") != null ? rs.getString("sql") : ""
-                    ));
-                }
-                
-                ctx.json(databases);
-            } catch (SQLException e) {
-                logger.error("Failed to fetch databases", e);
-                ctx.status(500).result("Internal Server Error: " + e.getMessage());
-            }
-        });
- 
-        
-        restServer.get("/management/users", ctx -> {
-            List<Map<String, Object>> databases = new ArrayList<>();
-            
-            List<String> roles = ctx.attribute("userRoles");
-            
-            if (roles == null || !roles.contains("admin")) {
-                throw new ForbiddenResponse("You need the ADMIN role to perform this action.");
-            }
-            
-            // Query the DuckDB catalog
-            try (Statement stmt = this.metadatadb.createStatement();
-                 ResultSet rs = stmt.executeQuery("SELECT * FROM openduck_users;")) {
-                
-                while (rs.next()) {
-                    databases.add(Map.of(
-                    		"id", rs.getObject("id").toString(),
-                            "username", rs.getString("username"),
-                            "role", rs.getString("role") != null ? rs.getString("role") : "USER",
-                            "created_at", rs.getTimestamp("created_at").toString()
-                    ));
-                }
-                
-                ctx.json(databases);
-            } catch (SQLException e) {
-                logger.error("Failed to fetch databases", e);
-                ctx.status(500).result("Internal Server Error: " + e.getMessage());
-            }
-        });        
-        
-        // Example: Shutdown via API (use with caution!)
-        restServer.post("/management/shutdown", ctx -> {
-            ctx.result("Shutting down...");
-            System.exit(0);
-        });
-    }
+	    routes.get("/management/schemas", ctx -> {
+	        List<Map<String, Object>> databases = new ArrayList<>();
+	        
+	        List<String> roles = ctx.attribute("userRoles");
+	        
+	        if (roles == null || !roles.contains("admin")) {
+	            throw new io.javalin.http.ForbiddenResponse("You need the ADMIN role to perform this action.");
+	        }
+	        
+	        // Query the DuckDB catalog
+	        try (Statement stmt = this.duckdb.createStatement();
+	             ResultSet rs = stmt.executeQuery("SELECT * FROM duckdb_schemas();")) {
+	            
+	            while (rs.next()) {
+	                databases.add(Map.of(
+	                    "oid", rs.getLong("oid"),
+	                    "database_name", rs.getString("database_name"),
+	                    "database_oid", rs.getLong("database_oid"),
+	                    "schema_name", rs.getString("schema_name"),
+	                    "comment", rs.getString("comment") != null ? rs.getString("comment") : "",
+	                    "tags", rs.getObject("tags") != null ? rs.getObject("tags") : Collections.emptyMap(),
+	                    "internal", rs.getBoolean("internal"),
+	                    "sql", rs.getString("sql") != null ? rs.getString("sql") : ""
+	                ));
+	            }
+	            
+	            ctx.json(databases);
+	        } catch (SQLException e) {
+	            logger.error("Failed to fetch databases", e);
+	            ctx.status(500).result("Internal Server Error: " + e.getMessage());
+	        }
+	    });
+	    
+	    routes.get("/management/users", ctx -> {
+	        List<Map<String, Object>> databases = new ArrayList<>();
+	        
+	        List<String> roles = ctx.attribute("userRoles");
+	        
+	        if (roles == null || !roles.contains("admin")) {
+	            throw new io.javalin.http.ForbiddenResponse("You need the ADMIN role to perform this action.");
+	        }
+	        
+	        // Query the DuckDB catalog
+	        try (Statement stmt = this.metadatadb.createStatement();
+	             ResultSet rs = stmt.executeQuery("SELECT * FROM openduck_users;")) {
+	            
+	            while (rs.next()) {
+	                databases.add(Map.of(
+	                    "id", rs.getObject("id").toString(),
+	                    "username", rs.getString("username"),
+	                    "role", rs.getString("role") != null ? rs.getString("role") : "USER",
+	                    "created_at", rs.getTimestamp("created_at").toString()
+	                ));
+	            }
+	            
+	            ctx.json(databases);
+	        } catch (SQLException e) {
+	            logger.error("Failed to fetch databases", e);
+	            ctx.status(500).result("Internal Server Error: " + e.getMessage());
+	        }
+	    });        
+	    
+	    // Example: Shutdown via API
+	    routes.post("/management/shutdown", ctx -> {
+	        ctx.result("Shutting down...");
+	        System.exit(0);
+	    });
+	}
 	
 	private User authenticateUser(String username, String password) {
 
@@ -363,6 +376,24 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 		
 	}
 
+	
+	@io.javalin.openapi.OpenApi(
+		    path = "/health",
+		    methods = io.javalin.openapi.HttpMethod.GET,
+		    summary = "Get server status",
+		    description = "Checks the operational status of the server and the underlying DuckDB engine.",
+		    responses = {
+		        @io.javalin.openapi.OpenApiResponse(
+		            status = "200", 
+		            description = "Server is healthy and functioning properly",
+		            content = @io.javalin.openapi.OpenApiContent(from = Map.class)
+		        )
+		    }
+		)
+		private void handleHealthCheck(io.javalin.http.Context ctx) {
+		    ctx.json(Map.of("status", "UP", "engine", "DuckDB"));
+		}
+	
 	public void start() throws Exception {
 		logger.info("Starting OpenDuck Server");
 		server.start();
