@@ -248,11 +248,6 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 	        }
 	    });
 		
-	    // Example: Get server status
-//	    routes.get("/health", ctx -> {
-//	        ctx.json(Map.of("status", "UP", "engine", "DuckDB"));
-//	    });
-
 	    routes.get("/health", this::handleHealthCheck);
 	    
 	    // Example: Manage the server (e.g., check metadata)
@@ -378,21 +373,19 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 
 	
 	@io.javalin.openapi.OpenApi(
-		    path = "/health",
-		    methods = io.javalin.openapi.HttpMethod.GET,
-		    summary = "Get server status",
-		    description = "Checks the operational status of the server and the underlying DuckDB engine.",
-		    responses = {
-		        @io.javalin.openapi.OpenApiResponse(
-		            status = "200", 
-		            description = "Server is healthy and functioning properly",
-		            content = @io.javalin.openapi.OpenApiContent(from = Map.class)
-		        )
-		    }
-		)
-		private void handleHealthCheck(io.javalin.http.Context ctx) {
-		    ctx.json(Map.of("status", "UP", "engine", "DuckDB"));
-		}
+			path = "/health", 
+			methods = io.javalin.openapi.HttpMethod.GET, 
+			summary = "Get server status", 
+			description = "Checks the operational status of the server and the underlying DuckDB engine.", 
+			responses = {
+					@io.javalin.openapi.OpenApiResponse(
+							status = "200", 
+							description = "Server is healthy and functioning properly", 
+							content = @io.javalin.openapi.OpenApiContent(from = Map.class)) }
+	)
+	private void handleHealthCheck(io.javalin.http.Context ctx) {
+		ctx.json(Map.of("status", "UP", "engine", "DuckDB"));
+	}
 	
 	public void start() throws Exception {
 		logger.info("Starting OpenDuck Server");
