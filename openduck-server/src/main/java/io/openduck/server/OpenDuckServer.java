@@ -45,6 +45,7 @@ import io.javalin.Javalin;
 import io.javalin.http.ForbiddenResponse;
 import io.javalin.openapi.plugin.OpenApiPlugin;
 import io.javalin.openapi.plugin.swagger.SwaggerPlugin;
+import io.openduck.api.OpenDuckApiController;
 import io.openduck.auth.OpenDuckAuthenticator;
 import io.openduck.conf.Config;
 import io.openduck.user.User;
@@ -58,6 +59,8 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 	private final FlightServer server;
 	private final BufferAllocator allocator;
 	private final Javalin restServer; // New REST server instance
+	
+	private final OpenDuckApiController openDuckApiController;
 
 	private int restPort = 8080;
 
@@ -176,6 +179,9 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 		//this.server = FlightServer.builder(this.allocator, location, this).headerAuthenticator(CallHeaderAuthenticator.NO_OP).build(); 
 		
 		// 3. REST API Setup (using Javalin)
+		
+		this.openDuckApiController = new OpenDuckApiController();
+		
         this.restServer = Javalin.create(config -> {
             // Registered exactly as per the doc structure
             config.registerPlugin(new OpenApiPlugin(openapi -> {
@@ -248,7 +254,7 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 	        }
 	    });
 		
-	    routes.get("/health", this::handleHealthCheck);
+	    routes.get("/health", this.openDuckApiController::handleHealthCheck);
 	    
 	    // Example: Manage the server (e.g., check metadata)
 	    routes.get("/management/databases", ctx -> {
@@ -372,20 +378,7 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 	}
 
 	
-	@io.javalin.openapi.OpenApi(
-			path = "/health", 
-			methods = io.javalin.openapi.HttpMethod.GET, 
-			summary = "Get server status", 
-			description = "Checks the operational status of the server and the underlying DuckDB engine.", 
-			responses = {
-					@io.javalin.openapi.OpenApiResponse(
-							status = "200", 
-							description = "Server is healthy and functioning properly", 
-							content = @io.javalin.openapi.OpenApiContent(from = Map.class)) }
-	)
-	private void handleHealthCheck(io.javalin.http.Context ctx) {
-		ctx.json(Map.of("status", "UP", "engine", "DuckDB"));
-	}
+
 	
 	public void start() throws Exception {
 		logger.info("Starting OpenDuck Server");
