@@ -51,6 +51,8 @@ import io.openduck.conf.Config;
 import io.openduck.user.User;
 import io.openduck.user.UserRepository;
 import io.openduck.util.DuckDBArrowUtil;
+import io.swagger.v3.oas.models.Components;
+import io.swagger.v3.oas.models.security.SecurityScheme;
 
 public class OpenDuckServer implements FlightProducer, AutoCloseable {
 
@@ -63,8 +65,9 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 	private final OpenDuckApiController openDuckApiController;
 
 	private int restPort = 8080;
-
+	
 	private final String JWT_SECRET = "your-super-secret-key-change-this";
+	
 	
 	private static final Logger logger = LogManager.getLogger(OpenDuckServer.class);
 
@@ -180,18 +183,71 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 		
 		// 3. REST API Setup (using Javalin)
 		
-		this.openDuckApiController = new OpenDuckApiController();
+		this.openDuckApiController = new OpenDuckApiController(this.duckdb, this.metadatadb);
 		
         this.restServer = Javalin.create(config -> {
             // Registered exactly as per the doc structure
-            config.registerPlugin(new OpenApiPlugin(openapi -> {
-                openapi.withDefinitionConfiguration((version, builder) -> {
-                    builder.info(info -> {
-                        info.title("OpenDuck API");
-                        info.description("REST API to interact with OpenDuck server");
-                    });
-                });
-            }));
+        	config.registerPlugin(new OpenApiPlugin(openapi -> {
+        	    openapi.withDefinitionConfiguration((version, builder) -> {
+        	        builder.info(info -> {
+        	            info.title("OpenDuck API");
+        	            info.description("REST API to interact with OpenDuck server");
+        	        });
+        	    });
+//        	    openapi.withDefinitionProcessor(content -> {
+//        	        try {
+//        	            com.fasterxml.jackson.databind.node.ObjectNode bearerScheme = content.objectNode();
+//        	            bearerScheme.put("type", "http");
+//        	            bearerScheme.put("scheme", "bearer");
+//        	            bearerScheme.put("bearerFormat", "JWT");
+//
+//        	            com.fasterxml.jackson.databind.node.ObjectNode securitySchemes = content.objectNode();
+//        	            securitySchemes.set("bearerAuth", bearerScheme);
+//
+//        	            com.fasterxml.jackson.databind.node.ObjectNode components = content.objectNode();
+//        	            components.set("securitySchemes", securitySchemes);
+//        	            content.set("components", components);
+//
+//        	              
+//        	        } catch (Exception e) {
+//        	            logger.error("Failed to inject security scheme", e);
+//        	            
+//        	        }
+//        	        finally {
+//        	        	return content.toString();
+//					}
+//        	    });
+        	    openapi.withDefinitionProcessor(content -> {
+        	        try {
+        	            com.fasterxml.jackson.databind.node.ObjectNode components = 
+        	                content.has("components") 
+        	                    ? (com.fasterxml.jackson.databind.node.ObjectNode) content.get("components")
+        	                    : content.objectNode();
+
+        	            com.fasterxml.jackson.databind.node.ObjectNode basicScheme = content.objectNode();
+        	            basicScheme.put("type", "http");
+        	            basicScheme.put("scheme", "basic");
+
+        	            com.fasterxml.jackson.databind.node.ObjectNode securitySchemes = content.objectNode();
+        	            securitySchemes.set("basicAuth", basicScheme);
+
+        	            components.set("securitySchemes", securitySchemes);
+        	            content.set("components", components);
+
+//        	            com.fasterxml.jackson.databind.node.ArrayNode securityArray = content.arrayNode();
+//        	            com.fasterxml.jackson.databind.node.ObjectNode securityItem = content.objectNode();
+//        	            securityItem.set("basicAuth", content.arrayNode());
+//        	            securityArray.add(securityItem);
+//        	            content.set("security", securityArray);
+
+        	        } catch (Exception e) {
+        	            logger.error("Failed to inject security scheme", e);
+        	        } finally {
+        	            return content.toString();
+        	        }
+        	    });       	    
+        	}));
+            
 
             config.registerPlugin(new SwaggerPlugin());
             
@@ -213,75 +269,59 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 	private void setupRestRoutes(io.javalin.config.RoutesConfig routes) {
 		
 	    // PUBLIC LOGIN: Exchange credentials for a Token
-	    routes.post("/api/login", ctx -> {
-	        Map<String, String> body = ctx.bodyAsClass(Map.class);
-	        String username = body.get("username");
-	        String password = body.get("password");
-	        User user = authenticateUser(username, password);
-	       
-	        if (user != null) {
-	            // Generate the token
-	            String token = com.auth0.jwt.JWT.create()
-	                .withClaim("username", user.getUsername())
-	                .withArrayClaim("roles", user.getRoles().toArray(new String[0]))
-	                .withExpiresAt(new java.util.Date(System.currentTimeMillis() + 3600000)) // 1 hour
-	                .sign(com.auth0.jwt.algorithms.Algorithm.HMAC256(JWT_SECRET));
-	            ctx.json(Map.of("token", token));
-	        } else {
-	            throw new io.javalin.http.UnauthorizedResponse("Invalid Credentials");
-	        }
-	    });
+	    routes.post("/api/login", this.openDuckApiController::handleLogin);
 
 	    // MIDDLEWARE: Protect management routes using the Token
 	    routes.before("/management/*", ctx -> {
 	        String authHeader = ctx.header("Authorization");
-	        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-	            throw new io.javalin.http.UnauthorizedResponse("Missing Token");
+	        if (authHeader == null) {
+	            throw new io.javalin.http.UnauthorizedResponse("Missing credentials");
 	        }
-	        
-	        try {
-	            String token = authHeader.substring(7);
-	            var verifier = com.auth0.jwt.JWT.require(com.auth0.jwt.algorithms.Algorithm.HMAC256(JWT_SECRET)).build();
-	            var decoded = verifier.verify(token);
-	            // Extract the list of roles from the JWT
-	            List<String> roles = decoded.getClaim("roles").asList(String.class);
-	            
-	            // Attach to context so specific routes can check them
-	            ctx.attribute("userRoles", roles);
-	            ctx.attribute("username", decoded.getClaim("username").asString());
-	        } catch (Exception e) {
-	            throw new io.javalin.http.UnauthorizedResponse("Invalid Token");
+
+	        if (authHeader.startsWith("Basic ")) {
+	            try {
+	                String base64 = authHeader.substring(6);
+	                String decoded = new String(java.util.Base64.getDecoder().decode(base64));
+	                String[] parts = decoded.split(":", 2);
+	                String username = parts[0];
+	                String password = parts[1];
+
+	                User user = this.openDuckApiController.authenticateUser(username, password);
+	                if (user == null) {
+	                    throw new io.javalin.http.UnauthorizedResponse("Invalid credentials");
+	                }
+
+	                ctx.attribute("userRoles", user.getRoles());
+	                ctx.attribute("username", user.getUsername());
+
+	            } catch (io.javalin.http.UnauthorizedResponse e) {
+	                throw e;
+	            } catch (Exception e) {
+	                throw new io.javalin.http.UnauthorizedResponse("Invalid Authorization header");
+	            }
+
+	        } else if (authHeader.startsWith("Bearer ")) {
+	            try {
+	                String token = authHeader.substring(7);
+	                var verifier = com.auth0.jwt.JWT.require(
+	                    com.auth0.jwt.algorithms.Algorithm.HMAC256(JWT_SECRET)).build();
+	                var decoded = verifier.verify(token);
+	                List<String> roles = decoded.getClaim("roles").asList(String.class);
+	                ctx.attribute("userRoles", roles);
+	                ctx.attribute("username", decoded.getClaim("username").asString());
+	            } catch (Exception e) {
+	                throw new io.javalin.http.UnauthorizedResponse("Invalid Token");
+	            }
+
+	        } else {
+	            throw new io.javalin.http.UnauthorizedResponse("Missing credentials");
 	        }
 	    });
 		
 	    routes.get("/health", this.openDuckApiController::handleHealthCheck);
 	    
 	    // Example: Manage the server (e.g., check metadata)
-	    routes.get("/management/databases", ctx -> {
-	        List<Map<String, Object>> databases = new ArrayList<>();
-	        
-	        List<String> roles = ctx.attribute("userRoles");
-	        
-	        if (roles == null || !roles.contains("admin")) {
-	            throw new io.javalin.http.ForbiddenResponse("You need the ADMIN role to perform this action.");
-	        }
-	        
-	        // Query the DuckDB catalog
-	        try (Statement stmt = this.duckdb.createStatement();
-	             ResultSet rs = stmt.executeQuery("PRAGMA show_databases;")) {
-	            
-	            while (rs.next()) {
-	                databases.add(Map.of(
-	                    "name", rs.getString("database_name")
-	                ));
-	            }
-	            
-	            ctx.json(databases);
-	        } catch (SQLException e) {
-	            logger.error("Failed to fetch databases", e);
-	            ctx.status(500).result("Internal Server Error: " + e.getMessage());
-	        }
-	    });
+	    routes.get("/management/databases", this.openDuckApiController::listDatabases);
 
 	    routes.get("/management/schemas", ctx -> {
 	        List<Map<String, Object>> databases = new ArrayList<>();
@@ -352,30 +392,7 @@ public class OpenDuckServer implements FlightProducer, AutoCloseable {
 	    });
 	}
 	
-	private User authenticateUser(String username, String password) {
 
-		// Decode and verify credentials...
-		BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
-
-		UserRepository userRepository = new UserRepository();
-		
-		try {
-			User user = userRepository.getUser(this.metadatadb, username);
-			if (user == null || password == null) {
-				return null;
-			}
-			if (encoder.matches(password, user.getPasswordHash())) {
-				return user;
-			}
-			return null;
-			
-		} catch (Exception e) {
-			logger.error(e);
-			return null;
-		}
-		
-		
-	}
 
 	
 
