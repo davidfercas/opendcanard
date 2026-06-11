@@ -4,7 +4,7 @@
 
 # OpenDuck 
 
-**OpenDuck Server** is an open-source, self-hosted DuckDB Flight server for remote analytics.  
+**OpenCanard Server** is an open-source, self-hosted DuckDB Flight server for remote analytics.  
 It allows Python, Java, and BI tools to query Parquet files and object storage (S3-compatible) efficiently, without relying on a managed cloud service.
 
 ---
