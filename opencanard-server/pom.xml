@@ -1,0 +1,194 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>io.opencanard</groupId>
+		<artifactId>opencanard-parent</artifactId>
+		<version>0.1</version>
+		<relativePath>../pom.xml</relativePath>
+	</parent>
+	<artifactId>opencanard-server</artifactId>
+	<name>OpenCanard Server</name>
+	<description>DuckDB Arrow Flight server with token authentication and REST API</description>
+	<!-- ===================== BUILD ===================== -->
+	<build>
+		<plugins>
+			<!-- Copy dependencies to lib/external -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-dependency-plugin</artifactId>
+				<version>3.6.1</version>
+				<executions>
+					<execution>
+						<id>copy-deps</id>
+						<phase>prepare-package</phase>
+						<goals>
+							<goal>copy-dependencies</goal>
+						</goals>
+						<configuration>
+							<outputDirectory>${project.build.directory}/lib/external</outputDirectory>
+							<includeScope>runtime</includeScope>
+							<overWriteReleases>false</overWriteReleases>
+							<overWriteSnapshots>false</overWriteSnapshots>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<!-- Build your main JAR -->
+			<!--            <plugin>-->
+			<!--                <groupId>org.apache.maven.plugins</groupId>-->
+			<!--                <artifactId>maven-jar-plugin</artifactId>-->
+			<!--                <version>3.3.0</version>-->
+			<!--                <configuration>-->
+			<!--                    <archive>-->
+			<!--                        <manifest>-->
+			<!--                             optional if you ever want fallback execution -->
+			<!--                            <addDefaultImplementationEntries>true</addDefaultImplementationEntries>-->
+			<!--                        </manifest>-->
+			<!--                    </archive>-->
+			<!--                </configuration>-->
+			<!--            </plugin>-->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-assembly-plugin</artifactId>
+				<version>3.7.1</version>
+				<configuration>
+					<descriptors>
+						<descriptor>src/assembly/server.xml</descriptor>
+					</descriptors>
+					<finalName>opencanard</finalName>
+					<appendAssemblyId>false</appendAssemblyId>
+				</configuration>
+				<executions>
+					<execution>
+						<id>make-dist</id>
+						<phase>package</phase>
+						<goals>
+							<goal>single</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<configuration>
+					<annotationProcessorPaths>
+						<path>
+							<groupId>io.javalin.community.openapi</groupId>
+							<artifactId>openapi-annotation-processor</artifactId>
+							<version>${javalin.version}</version>
+						</path>
+					</annotationProcessorPaths>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+	<dependencies>
+		<!-- Flight core implementation -->
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>flight-core</artifactId>
+		</dependency>
+		<!-- Arrow vector for schema & vectors -->
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>arrow-vector</artifactId>
+		</dependency>
+		<!-- Memory allocator for Arrow buffers -->
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>arrow-memory-core</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>arrow-memory-netty</artifactId>
+		</dependency>
+		<!-- (Optional) Flight SQL helpers -->
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>flight-sql</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>arrow-jdbc</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>flight-sql-jdbc-driver</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.arrow</groupId>
+			<artifactId>arrow-c-data</artifactId>
+			<version>${arrow.version}</version>
+		</dependency>
+		<!-- DuckDB -->
+		<dependency>
+			<groupId>org.duckdb</groupId>
+			<artifactId>duckdb_jdbc</artifactId>
+			<version>1.1.3</version>
+		</dependency>
+		<!-- Logging -->
+		<!-- Log4j2 API and Core -->
+		<dependency>
+			<groupId>org.apache.logging.log4j</groupId>
+			<artifactId>log4j-api</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.logging.log4j</groupId>
+			<artifactId>log4j-core</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.logging.log4j</groupId>
+			<artifactId>log4j-slf4j-impl</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-crypto</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>commons-logging</groupId>
+			<artifactId>commons-logging</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.javalin</groupId>
+			<artifactId>javalin</artifactId>
+			<version>${javalin.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>io.javalin.community.openapi</groupId>
+			<artifactId>javalin-openapi-plugin</artifactId>
+			<version>${javalin.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>io.javalin.community.openapi</groupId>
+			<artifactId>javalin-swagger-plugin</artifactId>
+			<version>${javalin.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>io.swagger.core.v3</groupId>
+			<artifactId>swagger-core</artifactId>
+			<version>2.2.22</version>
+		</dependency>
+		<dependency>
+			<groupId>io.swagger.core.v3</groupId>
+			<artifactId>swagger-models</artifactId>
+			<version>2.2.22</version>
+		</dependency>
+		<!-- Optional: ReDoc -->
+		<dependency>
+			<groupId>io.javalin.community.openapi</groupId>
+			<artifactId>javalin-redoc-plugin</artifactId>
+			<version>${javalin.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>com.fasterxml.jackson.core</groupId>
+			<artifactId>jackson-databind</artifactId>
+			<version>2.17.0</version>
+		</dependency>
+		<dependency>
+			<groupId>com.auth0</groupId>
+			<artifactId>java-jwt</artifactId>
+			<version>4.4.0</version>
+		</dependency>
+	</dependencies>
+</project>

@@ -1,0 +1,109 @@
+# Authentication and security
+
+> **Read this before exposing OpenCanard to a network.** OpenCanard is in early development. This
+> page documents how authentication actually behaves in the current source code, including the gaps.
+
+## Summary
+
+| Area | Current behavior |
+| --- | --- |
+| Flight port (`8815`) — `Basic` credentials | Checked against the users table (bcrypt). |
+| Flight port — `Bearer` token | **Any value is accepted.** The token is not validated. |
+| Flight port — transport | **Plaintext gRPC.** No TLS. |
+| REST API (`8084`) | Login returns a signed JWT; `/management/*` requires credentials or a JWT. Plain HTTP. |
+| JWT signing secret | **Hard-coded** in the source. |
+| Query restrictions | **None.** SQL from clients runs as-is on a read-write DuckDB connection. |
+
+Until the gaps below are fixed, run OpenCanard only on a trusted network (loopback, a private network,
+or behind a reverse proxy / VPN that provides TLS and access control), and do not rely on it to keep
+data away from other users of that network.
+
+## Users
+
+Users live in the table `main.opencanard_users` of the **metadata** database
+(`metadata/metadata.duckdb`). Each user has one role. The REST management endpoints (except
+shutdown, see [known limitations](#known-limitations)) require the role `admin`, written exactly like
+that in lowercase; any other value gives no management access.
+
+### Creating users
+
+The server does not create the table or any user automatically. With the server stopped, open the
+metadata database with the [DuckDB CLI](https://duckdb.org/docs/installation/) and run:
+
+```sql
+-- Suggested schema, inferred from the columns the server reads.
+CREATE TABLE IF NOT EXISTS main.opencanard_users (
+    id            UUID DEFAULT uuid(),
+    username      VARCHAR NOT NULL UNIQUE,
+    password_hash VARCHAR NOT NULL,
+    role          VARCHAR,
+    created_at    TIMESTAMP DEFAULT now()
+);
+
+INSERT INTO main.opencanard_users (username, password_hash, role)
+VALUES ('admin', '<bcrypt hash>', 'admin');
+```
+
+DuckDB allows only one process to open a database file for writing, so stop the server before running
+the CLI against `metadata.duckdb`.
+
+Generate the bcrypt hash with any bcrypt tool. Two examples:
+
+```bash
+# Python (pip install bcrypt)
+python3 -c "import bcrypt; print(bcrypt.hashpw(b'change-me', bcrypt.gensalt(10)).decode())"
+
+# Apache htpasswd
+htpasswd -bnBC 10 "" 'change-me' | tr -d ':\n'
+```
+
+The server verifies passwords with Spring Security's `BCryptPasswordEncoder`, which accepts the
+`$2a$`, `$2b$` and `$2y$` prefixes. Never store a plaintext password in the table.
+
+## Arrow Flight port
+
+Every Flight call must carry an `Authorization` header. Two schemes are recognized:
+
+- **`Basic <base64(user:password)>`** — the credentials are checked against the users table.
+  Wrong credentials are rejected with `UNAUTHENTICATED`.
+- **`Bearer <token>`** — **accepted without validation.** The authenticator currently treats every
+  bearer token as valid. Anyone who can reach the port can send `Authorization: Bearer x` and run
+  queries. The server does not issue bearer tokens on the Flight port either.
+
+Clients should therefore send `Basic` credentials on each call (see [clients](clients.md)). Do not
+treat the Flight port as access-controlled until bearer-token validation is implemented.
+
+Once authenticated, there is no per-user or per-role authorization on the Flight port: every user can
+run any SQL statement the DuckDB connection allows, including statements that modify data.
+
+## TLS
+
+The sample configuration contains `tls.enabled=true`, `tls.certFile` and `tls.keyFile`, but **these
+settings are not read by the server**. The Flight server is created with an insecure gRPC location and
+the REST API uses plain HTTP, so credentials and query results travel unencrypted.
+
+To protect traffic today, terminate TLS in front of OpenCanard (for example a reverse proxy for the
+REST API, or a VPN / private network for the Flight port).
+
+## REST API authentication
+
+See [REST API](rest-api.md) for the endpoints. In short:
+
+- `POST /api/login` exchanges a username and password for a JWT (HS256, valid for one hour, carrying the
+  `username` and `roles` claims).
+- Everything under `/management/*` requires either `Authorization: Basic ...` or
+  `Authorization: Bearer <JWT>`. These JWTs **are** verified, unlike the Flight bearer tokens.
+- The JWT secret is a constant in the source code (`your-super-secret-key-change-this`). Anyone who
+  knows it can forge a token with the `admin` role. Rebuild with your own secret if you must run a
+  build from this version outside a trusted network.
+
+## Known limitations
+
+These are tracked here so they are not mistaken for features:
+
+1. Flight bearer tokens are not validated.
+2. No TLS on either port; the `tls.*` properties are ignored.
+3. The JWT signing secret is hard-coded.
+4. `POST /management/shutdown` only requires an authenticated user, not the `admin` role.
+5. No read-only enforcement: clients can send `INSERT`, `UPDATE`, `DROP` and other statements.
+6. Users must be created by hand in the metadata database.
