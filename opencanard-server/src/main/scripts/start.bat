@@ -5,7 +5,7 @@ REM Base directory
 set BASE_DIR=%~dp0..
 
 REM Classpath
-set CP=%BASE_DIR%\lib\opencanard-0.1.jar;%BASE_DIR%\lib\external\*
+set CP=%BASE_DIR%\lib\opencanard-server-0.1.jar;%BASE_DIR%\lib\external\*
 
 REM JVM options
 set JAVA_OPTS=

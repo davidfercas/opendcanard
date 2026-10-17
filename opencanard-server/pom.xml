@@ -1,32 +1,17 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
-	<groupId>es.dfc</groupId>
-	<artifactId>opencanard</artifactId>
-	<version>0.1</version>
-	<properties>
-		<java.version>17</java.version>
-		<arrow.version>18.3.0</arrow.version>
-	</properties>
+	<parent>
+		<groupId>io.opencanard</groupId>
+		<artifactId>opencanard-parent</artifactId>
+		<version>0.1</version>
+		<relativePath>../pom.xml</relativePath>
+	</parent>
+	<artifactId>opencanard-server</artifactId>
+	<name>OpenCanard Server</name>
+	<description>DuckDB Arrow Flight server with token authentication and REST API</description>
 	<!-- ===================== BUILD ===================== -->
 	<build>
 		<plugins>
-			<!-- Java compiler -->
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-compiler-plugin</artifactId>
-				<version>3.11.0</version>
-				<configuration>
-					<source>${java.version}</source>
-					<target>${java.version}</target>
-					<annotationProcessorPaths>
-						<annotationProcessorPath>
-							<groupId>io.javalin.community.openapi</groupId>
-							<artifactId>openapi-annotation-processor</artifactId>
-							<version>7.2.0</version>
-						</annotationProcessorPath>
-					</annotationProcessorPaths>
-				</configuration>
-			</plugin>
 			<!-- Copy dependencies to lib/external -->
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
@@ -91,7 +76,7 @@
 						<path>
 							<groupId>io.javalin.community.openapi</groupId>
 							<artifactId>openapi-annotation-processor</artifactId>
-							<version>7.2.2</version>
+							<version>${javalin.version}</version>
 						</path>
 					</annotationProcessorPaths>
 				</configuration>
@@ -103,40 +88,33 @@
 		<dependency>
 			<groupId>org.apache.arrow</groupId>
 			<artifactId>flight-core</artifactId>
-			<version>${arrow.version}</version>
 		</dependency>
 		<!-- Arrow vector for schema & vectors -->
 		<dependency>
 			<groupId>org.apache.arrow</groupId>
 			<artifactId>arrow-vector</artifactId>
-			<version>${arrow.version}</version>
 		</dependency>
 		<!-- Memory allocator for Arrow buffers -->
 		<dependency>
 			<groupId>org.apache.arrow</groupId>
 			<artifactId>arrow-memory-core</artifactId>
-			<version>${arrow.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.arrow</groupId>
 			<artifactId>arrow-memory-netty</artifactId>
-			<version>${arrow.version}</version>
 		</dependency>
 		<!-- (Optional) Flight SQL helpers -->
 		<dependency>
 			<groupId>org.apache.arrow</groupId>
 			<artifactId>flight-sql</artifactId>
-			<version>${arrow.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.arrow</groupId>
 			<artifactId>arrow-jdbc</artifactId>
-			<version>${arrow.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.arrow</groupId>
 			<artifactId>flight-sql-jdbc-driver</artifactId>
-			<version>${arrow.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.arrow</groupId>
@@ -154,42 +132,37 @@
 		<dependency>
 			<groupId>org.apache.logging.log4j</groupId>
 			<artifactId>log4j-api</artifactId>
-			<version>2.20.0</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.logging.log4j</groupId>
 			<artifactId>log4j-core</artifactId>
-			<version>2.20.0</version>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.logging.log4j</groupId>
 			<artifactId>log4j-slf4j-impl</artifactId>
-			<version>2.20.0</version>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.security</groupId>
 			<artifactId>spring-security-crypto</artifactId>
-			<version>6.2.0</version>
 		</dependency>
 		<dependency>
 			<groupId>commons-logging</groupId>
 			<artifactId>commons-logging</artifactId>
-			<version>1.2</version>
 		</dependency>
 		<dependency>
 			<groupId>io.javalin</groupId>
 			<artifactId>javalin</artifactId>
-			<version>7.2.2</version>
+			<version>${javalin.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>io.javalin.community.openapi</groupId>
 			<artifactId>javalin-openapi-plugin</artifactId>
-			<version>7.2.2</version>
+			<version>${javalin.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>io.javalin.community.openapi</groupId>
 			<artifactId>javalin-swagger-plugin</artifactId>
-			<version>7.2.2</version>
+			<version>${javalin.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>io.swagger.core.v3</groupId>
@@ -205,7 +178,7 @@
 		<dependency>
 			<groupId>io.javalin.community.openapi</groupId>
 			<artifactId>javalin-redoc-plugin</artifactId>
-			<version>7.2.2</version>
+			<version>${javalin.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>com.fasterxml.jackson.core</groupId>

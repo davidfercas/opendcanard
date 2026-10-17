@@ -8,7 +8,7 @@
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Classpath
-CP="$BASE_DIR/lib/opencanard-0.1.jar:$BASE_DIR/lib/external/*"
+CP="$BASE_DIR/lib/opencanard-server-0.1.jar:$BASE_DIR/lib/external/*"
 
 # JVM options
 JAVA_OPTS=""
