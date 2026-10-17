@@ -2,7 +2,7 @@
   <img src="resources/openduck_logo.png" alt="Project Logo" width="250"/>
 </p>
 
-# OpenDuck 
+# OpenCanard
 
 **OpenCanard Server** is an open-source, self-hosted DuckDB Flight server for remote analytics.  
 It allows Python, Java, and BI tools to query Parquet files and object storage (S3-compatible) efficiently, without relying on a managed cloud service.
@@ -11,7 +11,7 @@ It allows Python, Java, and BI tools to query Parquet files and object storage (
 
 ## Description
 
-OpenDuck Server provides a lightweight server layer on top of DuckDB, exposing **remote SQL execution via Apache Arrow Flight**.  
+OpenCanard Server provides a lightweight server layer on top of DuckDB, exposing **remote SQL execution via Apache Arrow Flight**.  
 It is designed for environments where data must stay on-premises, on your object storage, or in edge deployments, while enabling analytics clients to access it efficiently.
 
 Key features:
@@ -26,7 +26,7 @@ Key features:
 
 ---
 
-## What OpenDuck Server **is**
+## What OpenCanard Server **is**
 
 - A **self-hosted server** for DuckDB
 - A **remote query engine**, not a full database platform
@@ -36,7 +36,7 @@ Key features:
 
 ---
 
-## What OpenDuck Server **is NOT**
+## What OpenCanard Server **is NOT**
 
 - A replacement for DuckDB itself
 - A SaaS or managed service
@@ -49,7 +49,7 @@ Key features:
 
 ## Expectations
 
-Users of OpenDuck Server can expect:
+Users of OpenCanard Server can expect:
 
 - **Secure access**: Only authorized users with valid tokens can create a DuckDB session.
 - **Efficient streaming**: Arrow Flight ensures large query results are streamed efficiently to clients.
