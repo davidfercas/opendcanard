@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="resources/openduck_logo.png" alt="Project Logo" width="250"/>
+  <img src="resources/opencanard_logo.png" alt="Project Logo" width="250"/>
 </p>
 
 # OpenCanard
