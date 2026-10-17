@@ -1,3 +1,27 @@
-﻿opencanard-jdbc-driver/.settings
-opencanard-jdbc-driver/.classpath
+# Build output
+target/
+*.class
+*.so
+
+# Runtime data, logs and secrets (never commit these)
 *.db
+*.duckdb
+*.duckdb.wal
+logs/
+certs/
+*.pem
+.env
+opencanard-server/data/
+opencanard-server/metadata/
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.project
+.classpath
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
