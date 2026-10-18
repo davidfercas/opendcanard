@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -144,13 +145,16 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 			throws Exception {
 
 
-		// Must be checked BEFORE connecting: DuckDB creates the file as soon as it is opened.
+		// First run only: if metadata.duckdb does not exist, build it completely (folder, table and
+		// admin user) BEFORE connecting. Later runs skip this and use the existing file as it is.
 		// metadataPath is the full path of the file (<metadata.dir>/metadata.duckdb).
 		Path metadataFile = Paths.get(metadataPath);
-		boolean newMetadataDb = Files.notExists(metadataFile);
 		// DuckDB cannot create the file if its folder is missing (e.g. when started from an IDE
 		// instead of start.sh, which does mkdir -p).
 		Files.createDirectories(metadataFile.toAbsolutePath().getParent());
+		if (Files.notExists(metadataFile)) {
+			createMetadataDb(metadataFile);
+		}
 
 		// Embedded DuckDB
 		try {
@@ -159,10 +163,6 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		} catch (Exception e) {
 			logger.error(e);
 			throw e;
-		}
-
-		if (newMetadataDb) {
-			initMetadataDb(this.metadatadb, metadataPath);
 		}
 
 		try (Statement stmt = this.duckdb.createStatement()) {
@@ -416,42 +416,55 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 
 	
 	/**
-	 * Initialises a freshly created metadata database: creates the users table and
-	 * inserts the admin user (admin.user / admin.password) with a BCrypt-hashed
-	 * password, the same encoder PasswordManager uses.
-	 * If anything fails, the half-initialised file is removed so the next start
-	 * retries instead of finding an existing but empty database.
+	 * First-run setup: creates the metadata database with the opencanard_users table and
+	 * the admin user (admin.user / admin.password), whose password is BCrypt-hashed with the
+	 * same encoder PasswordManager uses.
+	 * <p>
+	 * The database is built in a temporary file and only moved to its final name once it is
+	 * complete and checkpointed. So metadata.duckdb never exists half-initialised (for example
+	 * if the process is killed in the middle): if the file exists, it is finished, and later
+	 * runs can safely skip this step.
 	 */
-	private void initMetadataDb(Connection conn, String metadataPath) throws Exception {
-		logger.info("Metadata database not found, creating " + metadataPath);
+	private void createMetadataDb(Path metadataFile) throws Exception {
+		logger.info("Metadata database not found, creating " + metadataFile);
+
+		Path tmpFile = metadataFile.resolveSibling(metadataFile.getFileName() + ".tmp");
+		Path tmpWal = metadataFile.resolveSibling(metadataFile.getFileName() + ".tmp.wal");
+
 		try {
-			conn.setAutoCommit(false);
+			// Remove leftovers of an earlier interrupted attempt
+			Files.deleteIfExists(tmpFile);
+			Files.deleteIfExists(tmpWal);
 
-			try (Statement stmt = conn.createStatement()) {
-				stmt.execute("CREATE TABLE opencanard_users(username VARCHAR PRIMARY KEY, "
-						+ "password_hash VARCHAR NOT NULL, \"role\" VARCHAR NOT NULL, "
-						+ "created_at TIMESTAMP NOT NULL DEFAULT now())");
+			try (Connection conn = DriverManager
+					.getConnection("jdbc:duckdb:" + tmpFile.toAbsolutePath().toString().replace("\\", "/"))) {
+
+				try (Statement stmt = conn.createStatement()) {
+					stmt.execute("CREATE TABLE opencanard_users(username VARCHAR PRIMARY KEY, "
+							+ "password_hash VARCHAR NOT NULL, \"role\" VARCHAR NOT NULL, "
+							+ "created_at TIMESTAMP NOT NULL DEFAULT now())");
+				}
+
+				try (PreparedStatement ps = conn.prepareStatement(
+						"INSERT INTO opencanard_users(username, password_hash, \"role\", created_at) VALUES (?, ?, ?, now())")) {
+					ps.setString(1, ADMIN_USER);
+					ps.setString(2, new BCryptPasswordEncoder().encode(ADMIN_PASSWORD));
+					ps.setString(3, "admin");
+					ps.executeUpdate();
+				}
+
+				// Flush everything into the main file so no .wal is left behind
+				try (Statement stmt = conn.createStatement()) {
+					stmt.execute("CHECKPOINT");
+				}
 			}
 
-			try (PreparedStatement ps = conn.prepareStatement(
-					"INSERT INTO opencanard_users(username, password_hash, \"role\", created_at) VALUES (?, ?, ?, now())")) {
-				ps.setString(1, ADMIN_USER);
-				ps.setString(2, new BCryptPasswordEncoder().encode(ADMIN_PASSWORD));
-				ps.setString(3, "admin");
-				ps.executeUpdate();
-			}
-
-			conn.commit();
-			conn.setAutoCommit(true);
+			Files.move(tmpFile, metadataFile, StandardCopyOption.ATOMIC_MOVE);
 			logger.info("Metadata database created with admin user '" + ADMIN_USER + "'");
 		} catch (Exception e) {
-			logger.error("Failed to initialise metadata database", e);
-			try {
-				conn.close();
-			} catch (Exception ignored) {
-			}
-			Files.deleteIfExists(Paths.get(metadataPath));
-			Files.deleteIfExists(Paths.get(metadataPath + ".wal"));
+			logger.error("Failed to create metadata database", e);
+			Files.deleteIfExists(tmpFile);
+			Files.deleteIfExists(tmpWal);
 			throw e;
 		}
 	}
