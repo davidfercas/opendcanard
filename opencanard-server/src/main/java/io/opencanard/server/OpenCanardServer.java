@@ -1,6 +1,7 @@
 package io.opencanard.server;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
@@ -77,12 +78,19 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
     public static final String LOG_DIR;
     public static final String METADATA_DIR;
 
+    // Credentials of the admin user created when the metadata database is first created.
+    // Private on purpose: the password must not be readable from outside this class.
+    private static final String ADMIN_USER;
+    private static final String ADMIN_PASSWORD;
+
     static {
     	System.out.println("Loading properties");
         CONF_DIR = require("conf.dir");
         DATA_DIR = require("data.dir");
         LOG_DIR = require("log.dir");
         METADATA_DIR = require("metadata.dir");
+        ADMIN_USER = require("admin.user");
+        ADMIN_PASSWORD = require("admin.password");
     }
 
     private static String require(String key) {
@@ -135,8 +143,10 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	public OpenCanardServer(String host, int arrowPort, String metadataPath, String duckdbPath, BufferAllocator allocator)
 			throws Exception {
 
-		
-		
+
+		// Must be checked BEFORE connecting: DuckDB creates the file as soon as it is opened.
+		boolean newMetadataDb = Files.notExists(Paths.get(metadataPath));
+
 		// Embedded DuckDB
 		try {
 			this.duckdb = DriverManager.getConnection("jdbc:duckdb:" + duckdbPath);
@@ -144,6 +154,10 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		} catch (Exception e) {
 			logger.error(e);
 			throw e;
+		}
+
+		if (newMetadataDb) {
+			initMetadataDb(this.metadatadb, metadataPath);
 		}
 
 		try (Statement stmt = this.duckdb.createStatement()) {
@@ -397,6 +411,46 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	
 
 	
+	/**
+	 * Initialises a freshly created metadata database: creates the users table and
+	 * inserts the admin user (admin.user / admin.password) with a BCrypt-hashed
+	 * password, the same encoder PasswordManager uses.
+	 * If anything fails, the half-initialised file is removed so the next start
+	 * retries instead of finding an existing but empty database.
+	 */
+	private void initMetadataDb(Connection conn, String metadataPath) throws Exception {
+		logger.info("Metadata database not found, creating " + metadataPath);
+		try {
+			conn.setAutoCommit(false);
+
+			try (Statement stmt = conn.createStatement()) {
+				stmt.execute("CREATE TABLE opencanard_users(username VARCHAR PRIMARY KEY, "
+						+ "password_hash VARCHAR NOT NULL, \"role\" VARCHAR NOT NULL)");
+			}
+
+			try (PreparedStatement ps = conn.prepareStatement(
+					"INSERT INTO opencanard_users(username, password_hash, \"role\") VALUES (?, ?, ?)")) {
+				ps.setString(1, ADMIN_USER);
+				ps.setString(2, new BCryptPasswordEncoder().encode(ADMIN_PASSWORD));
+				ps.setString(3, "admin");
+				ps.executeUpdate();
+			}
+
+			conn.commit();
+			conn.setAutoCommit(true);
+			logger.info("Metadata database created with admin user '" + ADMIN_USER + "'");
+		} catch (Exception e) {
+			logger.error("Failed to initialise metadata database", e);
+			try {
+				conn.close();
+			} catch (Exception ignored) {
+			}
+			Files.deleteIfExists(Paths.get(metadataPath));
+			Files.deleteIfExists(Paths.get(metadataPath + ".wal"));
+			throw e;
+		}
+	}
+
 	public void start() throws Exception {
 		logger.info("Starting OpenCanard Server");
 		server.start();

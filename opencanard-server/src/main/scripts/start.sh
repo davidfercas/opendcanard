@@ -8,6 +8,10 @@
 #   OPENCANARD_XMX        maximum heap size          (default: 2g)
 #   OPENCANARD_JAVA_OPTS  extra JVM options appended to the defaults
 #   JAVA_HOME             JDK/JRE to use instead of the one on the PATH
+#
+# Required environment variables:
+#   OPENCANARD_ADMIN_USER      admin user created when the metadata database
+#   OPENCANARD_ADMIN_PASSWORD  is created for the first time
 # --------------------------------------------------
 
 # Resolve base directory
@@ -34,6 +38,9 @@ JAVA_OPTS="$JAVA_OPTS -Dmetadata.dir=$BASE_DIR/metadata"
 JAVA_OPTS="$JAVA_OPTS -Ddata.dir=$BASE_DIR/data"
 JAVA_OPTS="$JAVA_OPTS -Dlog.dir=$BASE_DIR/logs"
 
+# Admin credentials (kept in an array so spaces/special characters in the password survive)
+ADMIN_OPTS=("-Dadmin.user=$OPENCANARD_ADMIN_USER" "-Dadmin.password=$OPENCANARD_ADMIN_PASSWORD")
+
 # Arrow / JDK module opening
 JAVA_OPTS="$JAVA_OPTS --add-opens=java.base/java.nio=ALL-UNNAMED"
 
@@ -49,4 +56,4 @@ mkdir -p "$BASE_DIR/metadata"
 mkdir -p "$BASE_DIR/logs"
 
 # Start application
-exec "$JAVA_BIN" $JAVA_OPTS -cp "$CP" io.opencanard.server.OpenCanardServer
+exec "$JAVA_BIN" $JAVA_OPTS "${ADMIN_OPTS[@]}" -cp "$CP" io.opencanard.server.OpenCanardServer

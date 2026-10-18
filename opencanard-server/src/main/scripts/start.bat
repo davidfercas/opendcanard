@@ -14,6 +14,11 @@ set JAVA_OPTS=%JAVA_OPTS% -Dmetadata.dir=%BASE_DIR%\metadata
 set JAVA_OPTS=%JAVA_OPTS% -Ddata.dir=%BASE_DIR%\data
 set JAVA_OPTS=%JAVA_OPTS% -Dlog.dir=%BASE_DIR%\logs
 
+REM Admin user created when the metadata database is created for the first time.
+REM Set OPENCANARD_ADMIN_USER and OPENCANARD_ADMIN_PASSWORD before running this script.
+set JAVA_OPTS=%JAVA_OPTS% -Dadmin.user=%OPENCANARD_ADMIN_USER%
+set JAVA_OPTS=%JAVA_OPTS% -Dadmin.password=%OPENCANARD_ADMIN_PASSWORD%
+
 REM IMPORTANT: Arrow / JDK module opening
 set JAVA_OPTS=%JAVA_OPTS% --add-opens=java.base/java.nio=ALL-UNNAMED
 

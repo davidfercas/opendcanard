@@ -46,7 +46,7 @@ duplicate can be deleted.
 
 ## System properties
 
-The start scripts pass these to the JVM. All four are required; the server exits with
+The start scripts pass these to the JVM. All six are required; the server exits with
 `Missing system property` if one is absent.
 
 | Property | Set by the scripts to | Purpose |
@@ -55,6 +55,11 @@ The start scripts pass these to the JVM. All four are required; the server exits
 | `data.dir` | `<install>/data` | Location of the analytics database. |
 | `metadata.dir` | `<install>/metadata` | Location of the metadata database. |
 | `log.dir` | `<install>/logs` | Log directory passed to the application. |
+| `admin.user` | `$OPENCANARD_ADMIN_USER` | Username of the admin created when the metadata database is created. |
+| `admin.password` | `$OPENCANARD_ADMIN_PASSWORD` | Password of that admin (stored as a bcrypt hash). |
+
+`admin.user` and `admin.password` are only *used* when `metadata/metadata.duckdb` does not exist yet;
+afterwards they are still required but have no effect, and changing them does not change the stored user.
 
 The scripts also set `--add-opens=java.base/java.nio=ALL-UNNAMED` (required by Apache Arrow on
 Java 17), `-Xms512m`, `-Xmx2g` and `-Dfile.encoding=UTF-8`. The heap can be changed without editing the script through the `OPENCANARD_XMS` and `OPENCANARD_XMX`
@@ -72,6 +77,8 @@ the log ends up in `logs/`; if you start the JVM by other means, do it from the 
 
 - The analytics database (`data/opencanard.duckdb`) and the metadata database
   (`metadata/metadata.duckdb`) are opened in read-write mode and are created if they do not exist.
+  When the metadata database is created, the server also creates the `opencanard_users` table and
+  inserts the admin user from `admin.user` / `admin.password`.
 - On startup the server runs `INSTALL arrow;` and `LOAD arrow;` in DuckDB. DuckDB downloads
   extensions on first use, so the first start may need Internet access.
 - To query Parquet files or S3 data, use DuckDB's own functions from your SQL

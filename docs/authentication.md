@@ -27,21 +27,24 @@ that in lowercase; any other value gives no management access.
 
 ### Creating users
 
-The server does not create the table or any user automatically. With the server stopped, open the
-metadata database with the [DuckDB CLI](https://duckdb.org/docs/installation/) and run:
+The first time the server starts without a `metadata/metadata.duckdb` file, it creates the file, the
+table below and one admin user taken from `admin.user` / `admin.password` (the password is stored as a
+bcrypt hash):
 
 ```sql
--- Suggested schema, inferred from the columns the server reads.
-CREATE TABLE IF NOT EXISTS main.opencanard_users (
-    id            UUID DEFAULT uuid(),
-    username      VARCHAR NOT NULL UNIQUE,
+CREATE TABLE opencanard_users(
+    username      VARCHAR PRIMARY KEY,
     password_hash VARCHAR NOT NULL,
-    role          VARCHAR,
-    created_at    TIMESTAMP DEFAULT now()
+    "role"        VARCHAR NOT NULL
 );
+```
 
+If the file already exists, nothing is created or changed. To add more users, open the metadata
+database with the [DuckDB CLI](https://duckdb.org/docs/installation/) and run:
+
+```sql
 INSERT INTO main.opencanard_users (username, password_hash, role)
-VALUES ('admin', '<bcrypt hash>', 'admin');
+VALUES ('someone', '<bcrypt hash>', 'admin');
 ```
 
 DuckDB allows only one process to open a database file for writing, so stop the server before running
@@ -106,4 +109,4 @@ These are tracked here so they are not mistaken for features:
 3. The JWT signing secret is hard-coded.
 4. `POST /management/shutdown` only requires an authenticated user, not the `admin` role.
 5. No read-only enforcement: clients can send `INSERT`, `UPDATE`, `DROP` and other statements.
-6. Users must be created by hand in the metadata database.
+6. Only the first admin is created automatically; further users must be added by hand in the metadata database.
