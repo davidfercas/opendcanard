@@ -35,7 +35,8 @@ bcrypt hash):
 CREATE TABLE opencanard_users(
     username      VARCHAR PRIMARY KEY,
     password_hash VARCHAR NOT NULL,
-    "role"        VARCHAR NOT NULL
+    "role"        VARCHAR NOT NULL,
+    created_at    TIMESTAMP NOT NULL DEFAULT now()
 );
 ```
 
@@ -43,8 +44,8 @@ If the file already exists, nothing is created or changed. To add more users, op
 database with the [DuckDB CLI](https://duckdb.org/docs/installation/) and run:
 
 ```sql
-INSERT INTO main.opencanard_users (username, password_hash, role)
-VALUES ('someone', '<bcrypt hash>', 'admin');
+INSERT INTO main.opencanard_users (username, password_hash, role, created_at)
+VALUES ('someone', '<bcrypt hash>', 'admin', now());
 ```
 
 DuckDB allows only one process to open a database file for writing, so stop the server before running

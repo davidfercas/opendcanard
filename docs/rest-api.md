@@ -17,7 +17,7 @@ not checked against a running instance.
 | `POST` | `/api/login` | none | Exchanges a username and password for a JWT. |
 | `GET` | `/management/databases` | admin | Lists the databases attached to the DuckDB engine (`PRAGMA show_databases`). |
 | `GET` | `/management/schemas` | admin | Lists the schemas of the engine (rows of `duckdb_schemas()`). |
-| `GET` | `/management/users` | admin | Lists users: `id`, `username`, `role`, `created_at`. Password hashes are not returned. |
+| `GET` | `/management/users` | admin | Lists users: `username`, `role`, `created_at`. Password hashes are not returned. |
 | `POST` | `/management/shutdown` | any authenticated user | Stops the server process immediately. |
 
 Error responses: `401` for missing or invalid credentials, `403` when the `admin` role is required and

@@ -385,7 +385,6 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	            
 	            while (rs.next()) {
 	                databases.add(Map.of(
-	                    "id", rs.getObject("id").toString(),
 	                    "username", rs.getString("username"),
 	                    "role", rs.getString("role") != null ? rs.getString("role") : "USER",
 	                    "created_at", rs.getTimestamp("created_at").toString()
@@ -425,11 +424,12 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 
 			try (Statement stmt = conn.createStatement()) {
 				stmt.execute("CREATE TABLE opencanard_users(username VARCHAR PRIMARY KEY, "
-						+ "password_hash VARCHAR NOT NULL, \"role\" VARCHAR NOT NULL)");
+						+ "password_hash VARCHAR NOT NULL, \"role\" VARCHAR NOT NULL, "
+						+ "created_at TIMESTAMP NOT NULL DEFAULT now())");
 			}
 
 			try (PreparedStatement ps = conn.prepareStatement(
-					"INSERT INTO opencanard_users(username, password_hash, \"role\") VALUES (?, ?, ?)")) {
+					"INSERT INTO opencanard_users(username, password_hash, \"role\", created_at) VALUES (?, ?, ?, now())")) {
 				ps.setString(1, ADMIN_USER);
 				ps.setString(2, new BCryptPasswordEncoder().encode(ADMIN_PASSWORD));
 				ps.setString(3, "admin");
