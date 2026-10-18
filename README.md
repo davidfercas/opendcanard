@@ -112,6 +112,7 @@ Details are in [docs/clients.md](docs/clients.md).
 - [Authentication and security](docs/authentication.md) — users, tokens, TLS and known limitations.
 - [REST API](docs/rest-api.md) — health, login and management endpoints.
 - [Clients](docs/clients.md) — Python and JDBC usage.
+- [Deployment](docs/deployment.md) — systemd service for Red Hat and Docker.
 
 ## License
 

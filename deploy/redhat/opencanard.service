@@ -1,0 +1,34 @@
+[Unit]
+Description=OpenCanard - DuckDB Arrow Flight server
+Documentation=https://github.com/davidfercas/opendcanard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=opencanard
+Group=opencanard
+WorkingDirectory=/opt/opencanard
+
+# DuckDB stores its extensions (e.g. "arrow") under $HOME/.duckdb
+Environment=HOME=/opt/opencanard
+# Optional overrides: OPENCANARD_XMS, OPENCANARD_XMX, OPENCANARD_JAVA_OPTS, JAVA_HOME
+EnvironmentFile=-/etc/sysconfig/opencanard
+
+ExecStart=/opt/opencanard/bin/start.sh
+Restart=on-failure
+RestartSec=5
+# 143 = SIGTERM exit code of the JVM on a normal "systemctl stop"
+SuccessExitStatus=143
+TimeoutStopSec=30
+LimitNOFILE=65536
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/opencanard
+
+[Install]
+WantedBy=multi-user.target
