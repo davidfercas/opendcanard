@@ -145,7 +145,12 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 
 
 		// Must be checked BEFORE connecting: DuckDB creates the file as soon as it is opened.
-		boolean newMetadataDb = Files.notExists(Paths.get(metadataPath));
+		// metadataPath is the full path of the file (<metadata.dir>/metadata.duckdb).
+		Path metadataFile = Paths.get(metadataPath);
+		boolean newMetadataDb = Files.notExists(metadataFile);
+		// DuckDB cannot create the file if its folder is missing (e.g. when started from an IDE
+		// instead of start.sh, which does mkdir -p).
+		Files.createDirectories(metadataFile.toAbsolutePath().getParent());
 
 		// Embedded DuckDB
 		try {
