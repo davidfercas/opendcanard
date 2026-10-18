@@ -1,0 +1,21 @@
+.git
+.gitignore
+.idea
+.vscode
+*.iml
+
+# Build output and runtime data
+**/target
+**/logs
+**/data
+**/metadata
+*.duckdb
+*.duckdb.wal
+*.pem
+.env
+
+# Not needed to build the server
+docs
+resources
+deploy
+README.md

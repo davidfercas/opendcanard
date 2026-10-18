@@ -57,14 +57,16 @@ The start scripts pass these to the JVM. All four are required; the server exits
 | `log.dir` | `<install>/logs` | Log directory passed to the application. |
 
 The scripts also set `--add-opens=java.base/java.nio=ALL-UNNAMED` (required by Apache Arrow on
-Java 17), `-Xms512m`, `-Xmx2g` and `-Dfile.encoding=UTF-8`. Edit the script to change the heap size.
+Java 17), `-Xms512m`, `-Xmx2g` and `-Dfile.encoding=UTF-8`. The heap can be changed without editing the script through the `OPENCANARD_XMS` and `OPENCANARD_XMX`
+environment variables; `OPENCANARD_JAVA_OPTS` appends extra JVM options and `JAVA_HOME` selects the JDK.
+See [Deployment](deployment.md) for the systemd service and Docker image.
 
 ## Logging
 
 Logging is defined in `conf/log4j2.xml`: INFO level to the console and to `logs/opencanard.log`.
 The log file path in that file is relative to the **working directory** the server is started from,
-not to `log.dir`, so start the server from the installation directory if you want the log to end up
-in `logs/`.
+not to `log.dir`. `bin/start.sh` changes into the installation directory before starting the server, so
+the log ends up in `logs/`; if you start the JVM by other means, do it from the installation directory.
 
 ## Databases and startup behavior
 
