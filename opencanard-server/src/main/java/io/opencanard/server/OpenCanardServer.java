@@ -441,43 +441,77 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	 * runs can safely skip this step.
 	 */
 	private void createMetadataDb(Path metadataFile) throws Exception {
-		logger.info("Metadata database not found, creating " + metadataFile);
+		long t0 = System.currentTimeMillis();
+		logger.info("[metadata-init] Step 1/9: metadata database not found, creating {}", metadataFile);
 
 		Path tmpFile = metadataFile.resolveSibling(metadataFile.getFileName() + ".tmp");
 		Path tmpWal = metadataFile.resolveSibling(metadataFile.getFileName() + ".tmp.wal");
+		logger.info("[metadata-init] Temporary files: {} and {}", tmpFile, tmpWal);
 
 		try {
 			// Remove leftovers of an earlier interrupted attempt
-			Files.deleteIfExists(tmpFile);
-			Files.deleteIfExists(tmpWal);
+			boolean removedTmp = Files.deleteIfExists(tmpFile);
+			boolean removedWal = Files.deleteIfExists(tmpWal);
+			logger.info("[metadata-init] Step 2/9: leftovers removed (tmp={}, tmp.wal={})", removedTmp, removedWal);
 
-			try (Connection conn = DriverManager
-					.getConnection("jdbc:duckdb:" + tmpFile.toAbsolutePath().toString().replace("\\", "/"))) {
+			String tmpUrl = "jdbc:duckdb:" + tmpFile.toAbsolutePath().toString().replace("\\", "/");
+			try (Connection conn = DriverManager.getConnection(tmpUrl)) {
+				logger.info("[metadata-init] Step 3/9: connected to temporary database {}", tmpUrl);
 
 				try (Statement stmt = conn.createStatement()) {
 					stmt.execute("CREATE TABLE opencanard_users(username VARCHAR PRIMARY KEY, "
 							+ "password_hash VARCHAR NOT NULL, \"role\" VARCHAR NOT NULL, "
 							+ "created_at TIMESTAMP NOT NULL DEFAULT now())");
+					logger.info("[metadata-init] Step 4/9: table opencanard_users created");
 				}
-				
+
+				// The password is never logged, only the hash algorithm prefix and length
+				String passwordHash = new BCryptPasswordEncoder().encode(ADMIN_PASSWORD);
+				logger.info("[metadata-init] Step 5/9: password hashed with BCrypt (prefix={}, length={})",
+						passwordHash.substring(0, 7), passwordHash.length());
+
 				try (PreparedStatement ps = conn.prepareStatement(
 						"INSERT INTO opencanard_users(username, password_hash, \"role\", created_at) VALUES (?, ?, ?, now())")) {
 					ps.setString(1, ADMIN_USER);
-					ps.setString(2, new BCryptPasswordEncoder().encode(ADMIN_PASSWORD));
+					ps.setString(2, passwordHash);
 					ps.setString(3, "admin");
-					ps.executeUpdate();
+					int rows = ps.executeUpdate();
+					logger.info("[metadata-init] Step 6/9: admin user '{}' inserted with role 'admin' (rows affected: {})",
+							ADMIN_USER, rows);
 				}
 
 				// Flush everything into the main file so no .wal is left behind
 				try (Statement stmt = conn.createStatement()) {
 					stmt.execute("CHECKPOINT");
+					logger.info("[metadata-init] Step 7/9: CHECKPOINT done");
 				}
 			}
+			logger.info("[metadata-init] Temporary database closed ({} bytes, tmp.wal exists: {})",
+					Files.size(tmpFile), Files.exists(tmpWal));
 
 			Files.move(tmpFile, metadataFile, StandardCopyOption.ATOMIC_MOVE);
-			logger.info("Metadata database created with admin user '" + ADMIN_USER + "'");
+			logger.info("[metadata-init] Step 8/9: {} moved to {}", tmpFile.getFileName(), metadataFile);
+
+			// Final check: reopen the finished file and read the admin user back
+			String finalUrl = "jdbc:duckdb:" + metadataFile.toAbsolutePath().toString().replace("\\", "/");
+			int users = 0;
+			try (Connection conn = DriverManager.getConnection(finalUrl);
+					Statement stmt = conn.createStatement();
+					ResultSet rs = stmt.executeQuery(
+							"SELECT username, \"role\", created_at FROM opencanard_users")) {
+				while (rs.next()) {
+					users++;
+					logger.info("[metadata-init] Step 9/9: verified user '{}' role '{}' created_at {}",
+							rs.getString("username"), rs.getString("role"), rs.getTimestamp("created_at"));
+				}
+				if (users == 0) {
+					throw new IllegalStateException("Metadata database was created but opencanard_users is empty");
+				}
+			}
+			logger.info("[metadata-init] DONE: {} ({} bytes, {} user(s)) in {} ms", metadataFile,
+					Files.size(metadataFile), users, System.currentTimeMillis() - t0);
 		} catch (Exception e) {
-			logger.error("Failed to create metadata database", e);
+			logger.error("[metadata-init] FAILED after {} ms, cleaning up temporary files", System.currentTimeMillis() - t0, e);
 			Files.deleteIfExists(tmpFile);
 			Files.deleteIfExists(tmpWal);
 			throw e;
