@@ -1,6 +1,8 @@
 package io.opencanard.server;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -108,20 +110,20 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		// -Djava.io.tmpdir=/path/to/a/bigger/disk/folder
 		// Standard practice: Use try-with-resources to prevent memory leaks
 		
-		System.out.println("CONF DIR = " + CONF_DIR);
-		System.out.println("DATA DIR = " + DATA_DIR);
-		System.out.println("METADATA DIR = " + METADATA_DIR);
-		System.out.println("LOG DIR = " + LOG_DIR);
+		logger.info("CONF DIR = " + CONF_DIR);
+		logger.info("DATA DIR = " + DATA_DIR);
+		logger.info("METADATA DIR = " + METADATA_DIR);
+		logger.info("LOG DIR = " + LOG_DIR);
 		
 		Path opencanarddb = Paths.get(DATA_DIR, Config.get("opencanard.db")).toAbsolutePath().normalize();		
-		Path metadatadb = Paths.get(METADATA_DIR, Config.get("metadatadb.db")).toAbsolutePath().normalize();
+		//Path metadatadb = Paths.get(METADATA_DIR, Config.get("metadatadb.db")).toAbsolutePath().normalize();
 		
 		try (BufferAllocator rootAllocator = new RootAllocator(Config.getInt("arrow.memory.mb") * 1024L * 1024L)) {
 			// You now have a BufferAllocator instance!
 			// By default, it has no limit, but you can set one:
 			// new RootAllocator(1024 * 1024 * 1024L); // 1GB Limit
 			OpenCanardServer server = new OpenCanardServer(Config.get("opencanard.host"), Config.getInt("opencanard.port"),
-					metadatadb.toString().replace("\\", "/"), opencanarddb.toString().replace("\\", "/"), rootAllocator);
+					METADATA_DIR.toString().replace("\\", "/"), opencanarddb.toString().replace("\\", "/"), rootAllocator);
 
 			Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 				try {
@@ -143,23 +145,36 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 
 	public OpenCanardServer(String host, int arrowPort, String metadataPath, String duckdbPath, BufferAllocator allocator)
 			throws Exception {
+		logger.error("****************************** " + metadataPath); 
 
-
-		// First run only: if metadata.duckdb does not exist, build it completely (folder, table and
-		// admin user) BEFORE connecting. Later runs skip this and use the existing file as it is.
-		// metadataPath is the full path of the file (<metadata.dir>/metadata.duckdb).
-		Path metadataFile = Paths.get(metadataPath);
-		// DuckDB cannot create the file if its folder is missing (e.g. when started from an IDE
-		// instead of start.sh, which does mkdir -p).
-		Files.createDirectories(metadataFile.toAbsolutePath().getParent());
-		if (Files.notExists(metadataFile)) {
-			createMetadataDb(metadataFile);
+		// metadataPath is the full path of the FILE: <metadata.dir>/metadata.duckdb
+		//Path metadataFile = Paths.get(metadataPath).toAbsolutePath().normalize();
+		logger.error("Checking directory A");
+		Path metadataFolder = Paths.get(METADATA_DIR).toAbsolutePath().normalize();
+		// Only the parent folder is created, never the file path itself
+		Files.createDirectories(metadataFolder);
+		logger.error("Checking directory");
+		try (var paths = Files.list(metadataFolder)) {
+			
+			paths.forEach(path -> logger.error("Directory entry: {}", path));
+		} catch (IOException e) {
+			logger.error("Failed to list directory: {}", metadataFolder, e);
 		}
+
+		Path metadataFile = Paths.get(METADATA_DIR, Config.get("metadatadb.db")).toAbsolutePath().normalize();
+		if (Files.notExists(metadataFile)) {
+			logger.error("Creating " + metadataFile);
+
+			createMetadataDb(metadataFile);                    // first run: table + admin user
+		} else {
+			logger.error("Using existing " + metadataFile);     // later runs: use it as it is
+		}
+
 
 		// Embedded DuckDB
 		try {
 			this.duckdb = DriverManager.getConnection("jdbc:duckdb:" + duckdbPath);
-			this.metadatadb = DriverManager.getConnection("jdbc:duckdb:" + metadataPath);
+			this.metadatadb = DriverManager.getConnection("jdbc:duckdb:" + metadataFile);
 		} catch (Exception e) {
 			logger.error(e);
 			throw e;
@@ -444,7 +459,7 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 							+ "password_hash VARCHAR NOT NULL, \"role\" VARCHAR NOT NULL, "
 							+ "created_at TIMESTAMP NOT NULL DEFAULT now())");
 				}
-
+				
 				try (PreparedStatement ps = conn.prepareStatement(
 						"INSERT INTO opencanard_users(username, password_hash, \"role\", created_at) VALUES (?, ?, ?, now())")) {
 					ps.setString(1, ADMIN_USER);
