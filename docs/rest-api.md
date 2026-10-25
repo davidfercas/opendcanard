@@ -18,10 +18,11 @@ not checked against a running instance.
 | `GET` | `/management/databases` | admin | Lists the databases attached to the DuckDB engine (`PRAGMA show_databases`). |
 | `GET` | `/management/schemas` | admin | Lists the schemas of the engine (rows of `duckdb_schemas()`). |
 | `GET` | `/management/users` | admin | Lists users: `username`, `role`, `created_at`. Password hashes are not returned. |
+| `POST` | `/management/users` | admin | Creates a user and the user's own DuckDB file, see [Creating a user](#creating-a-user). |
 | `POST` | `/management/shutdown` | any authenticated user | Stops the server process immediately. |
 
 Error responses: `401` for missing or invalid credentials, `403` when the `admin` role is required and
-missing, `500` for database errors.
+missing, `400` for invalid input, `409` when something already exists, `500` for database errors.
 
 ## Authentication
 
@@ -51,6 +52,29 @@ curl -s http://localhost:8084/management/databases -H "Authorization: Bearer $TO
 
 curl -s http://localhost:8084/management/users -u admin:change-me
 ```
+
+## Creating a user
+
+```bash
+curl -s -X POST http://localhost:8084/management/users -u admin:change-me \
+  -H 'Content-Type: application/json' \
+  -d '{"username": "david", "password": "s3cret", "role": "user"}'
+```
+
+```json
+{ "username": "david", "role": "user", "database": "david.duckdb" }
+```
+
+| Field | Rules |
+| --- | --- |
+| `username` | 1 to 64 characters: letters, digits, `_` and `-`; must start with a letter or digit. It is also the file name of the user's database, so dots, slashes, spaces and Windows device names (`CON`, `NUL`, `COM1`...) are rejected. |
+| `password` | Required, at most 72 bytes (the limit of bcrypt). Stored as a bcrypt hash. |
+| `role` | `admin` or `user`. Optional, default `user`. |
+
+The call returns `201` and creates two things: a row in `opencanard_users`, and the user's own empty DuckDB
+file `data/users/<username>.duckdb`. If one of them cannot be created the other is removed again. It returns
+`409` if the user exists, or if a file `data/users/<username>.duckdb` is already there (for example left over
+from an interrupted creation: it is never overwritten, remove it first if it is not in use).
 
 ## Notes and limitations
 

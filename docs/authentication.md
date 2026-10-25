@@ -27,6 +27,10 @@ that in lowercase; any other value gives no management access.
 
 ### Creating users
 
+An admin can create users through the REST API, see [Creating a user](rest-api.md#creating-a-user). Each
+user created that way also gets a personal database, see [Per-user databases](#per-user-databases).
+The sections below describe the first admin and manual creation.
+
 The first time the server starts without a `metadata/metadata.duckdb` file, it creates the file, the
 table below and one admin user taken from `admin.user` / `admin.password` (the password is stored as a
 bcrypt hash):
@@ -63,6 +67,17 @@ htpasswd -bnBC 10 "" 'change-me' | tr -d ':\n'
 
 The server verifies passwords with Spring Security's `BCryptPasswordEncoder`, which accepts the
 `$2a$`, `$2b$` and `$2y$` prefixes. Never store a plaintext password in the table.
+
+## Per-user databases
+
+A user created through the REST API gets the DuckDB file `data/users/<login>.duckdb`. Every Arrow Flight
+call of that user runs on that file, and on no other: each call gets its own connection to it, and the
+file is opened on the first call and kept open until the server stops.
+
+Users without a personal file, such as the admin created on the first start or users inserted by hand,
+keep running on the shared database `data/opencanard.duckdb`, as before. Because a user is identified by the
+login the Flight authenticator accepted, this relies on the Basic credentials check; the unvalidated
+`Bearer` tokens (see below) are always treated as users without a personal file.
 
 ## Arrow Flight port
 

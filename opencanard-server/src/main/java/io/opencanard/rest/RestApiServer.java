@@ -8,6 +8,7 @@ import org.apache.logging.log4j.Logger;
 import io.javalin.Javalin;
 import io.javalin.openapi.plugin.OpenApiPlugin;
 import io.javalin.openapi.plugin.swagger.SwaggerPlugin;
+import io.opencanard.user.UserService;
 
 /**
  * The REST API server (Javalin): wires the OpenAPI/Swagger plugins, the authentication middleware
@@ -22,10 +23,10 @@ public class RestApiServer implements AutoCloseable {
 	private final Javalin app;
 	private final int port;
 
-	public RestApiServer(Connection duckdb, Connection metadatadb, int port) {
+	public RestApiServer(Connection duckdb, Connection metadatadb, UserService userService, int port) {
 		this.port = port;
 
-		OpenCanardApiController controller = new OpenCanardApiController(duckdb, metadatadb);
+		OpenCanardApiController controller = new OpenCanardApiController(duckdb, metadatadb, userService);
 		RestRoutes routes = new RestRoutes(controller, new AuthMiddleware(controller));
 
 		this.app = Javalin.create(config -> {

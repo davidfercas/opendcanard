@@ -14,7 +14,9 @@ import org.apache.logging.log4j.Logger;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import io.opencanard.user.User;
+import io.opencanard.user.UserAlreadyExistsException;
 import io.opencanard.user.UserRepository;
+import io.opencanard.user.UserService;
 
 
 public class OpenCanardApiController {
@@ -24,14 +26,16 @@ public class OpenCanardApiController {
 	
 	private final Connection metadatadb;
 	private final Connection duckdb;
+	private final UserService userService;
 	
 	// Shared with AuthMiddleware, which verifies the tokens issued by handleLogin
 	static final String JWT_SECRET = "your-super-secret-key-change-this";
 	
-	public OpenCanardApiController(Connection duckdb, Connection metadatadb) {
+	public OpenCanardApiController(Connection duckdb, Connection metadatadb, UserService userService) {
 		super();
 		this.metadatadb = metadatadb;
 		this.duckdb = duckdb;
+		this.userService = userService;
 	}
 
 
@@ -130,6 +134,19 @@ public class OpenCanardApiController {
 		}
 	}
 
+	@io.javalin.openapi.OpenApi(
+			path = "/management/users",
+			methods = io.javalin.openapi.HttpMethod.GET,
+			summary = "List users",
+			description = "Lists the users (never their password hashes). Requires the admin role.",
+			security = { @io.javalin.openapi.OpenApiSecurity(name = "basicAuth") },
+			tags = { "Management" },
+			responses = {
+					@io.javalin.openapi.OpenApiResponse(status = "200", description = "List of users"),
+					@io.javalin.openapi.OpenApiResponse(status = "401", description = "Missing or invalid credentials"),
+					@io.javalin.openapi.OpenApiResponse(status = "403", description = "User does not have the admin role")
+			}
+	)
 	public void listUsers(io.javalin.http.Context ctx) {
 		requireAdmin(ctx);
 
@@ -149,6 +166,55 @@ public class OpenCanardApiController {
 		} catch (SQLException e) {
 			logger.error("Failed to fetch users", e);
 			ctx.status(500).result("Internal Server Error: " + e.getMessage());
+		}
+	}
+
+	@io.javalin.openapi.OpenApi(
+			path = "/management/users",
+			methods = io.javalin.openapi.HttpMethod.POST,
+			summary = "Create a user",
+			description = "Creates a user and the user's own DuckDB database file, named after the login. "
+					+ "The username may only contain letters, digits, '_' and '-' (max. 64 characters). "
+					+ "The role is 'admin' or 'user' (default). Requires the admin role.",
+			security = { @io.javalin.openapi.OpenApiSecurity(name = "basicAuth") },
+			tags = { "Management" },
+			requestBody = @io.javalin.openapi.OpenApiRequestBody(
+					required = true,
+					content = @io.javalin.openapi.OpenApiContent(from = CreateUserRequest.class)),
+			responses = {
+					@io.javalin.openapi.OpenApiResponse(
+							status = "201",
+							description = "User created",
+							content = @io.javalin.openapi.OpenApiContent(from = CreateUserResponse.class)),
+					@io.javalin.openapi.OpenApiResponse(status = "400", description = "Invalid username, password or role"),
+					@io.javalin.openapi.OpenApiResponse(status = "401", description = "Missing or invalid credentials"),
+					@io.javalin.openapi.OpenApiResponse(status = "403", description = "User does not have the admin role"),
+					@io.javalin.openapi.OpenApiResponse(status = "409", description = "The user already exists")
+			}
+	)
+	public void createUser(io.javalin.http.Context ctx) {
+		requireAdmin(ctx);
+
+		Map<String, Object> body = ctx.bodyAsClass(Map.class);
+		String username = body.get("username") instanceof String ? (String) body.get("username") : null;
+		String password = body.get("password") instanceof String ? (String) body.get("password") : null;
+		String role = body.get("role") instanceof String ? (String) body.get("role") : null;
+
+		try {
+			User user = userService.createUser(username, password, role);
+			String role0 = user.getRoles().get(0);
+			logger.info("User '{}' created by '{}'", user.getUsername(), (String) ctx.attribute("username"));
+			ctx.status(201).json(Map.of(
+					"username", user.getUsername(),
+					"role", role0,
+					"database", user.getUsername() + ".duckdb"));
+		} catch (IllegalArgumentException e) {
+			throw new io.javalin.http.BadRequestResponse(e.getMessage());
+		} catch (UserAlreadyExistsException e) {
+			throw new io.javalin.http.ConflictResponse(e.getMessage());
+		} catch (Exception e) {
+			logger.error("Failed to create user '{}'", username, e);
+			ctx.status(500).result("Internal Server Error: the user could not be created");
 		}
 	}
 

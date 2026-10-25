@@ -39,12 +39,15 @@ import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.duckdb.DuckDBConnection;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import io.grpc.internal.LogExceptionRunnable;
 import io.opencanard.auth.OpenCanardAuthenticator;
 import io.opencanard.conf.Config;
 import io.opencanard.rest.RestApiServer;
+import io.opencanard.user.UserDatabases;
+import io.opencanard.user.UserService;
 import io.opencanard.util.DuckDBArrowUtil;
 
 public class OpenCanardServer implements FlightProducer, AutoCloseable {
@@ -54,6 +57,8 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	private final FlightServer server;
 	private final BufferAllocator allocator;
 	private final RestApiServer restApi; // REST API, see io.opencanard.rest
+	// One DuckDB file per user created through the API: <data.dir>/users/<login>.duckdb
+	private final UserDatabases userDatabases;
 	
 	
 	
@@ -195,7 +200,10 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		//this.server = FlightServer.builder(this.allocator, location, this).headerAuthenticator(CallHeaderAuthenticator.NO_OP).build(); 
 		
 		// REST API (Javalin): all endpoints live in the io.opencanard.rest package
-		this.restApi = new RestApiServer(this.duckdb, this.metadatadb, Config.getInt("opencanard.rest.port"));
+		this.userDatabases = new UserDatabases(Paths.get(DATA_DIR, "users"));
+		UserService userService = new UserService(this.metadatadb, this.userDatabases);
+		this.restApi = new RestApiServer(this.duckdb, this.metadatadb, userService,
+				Config.getInt("opencanard.rest.port"));
 	}
 
 	/**
@@ -339,9 +347,32 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	public void close() throws Exception {
 		logger.info("Stopping OpenCanard Server");
 		this.server.close();
+		this.userDatabases.close();
 		this.duckdb.close();
 		this.restApi.stop();
 		logger.info("OpenCanard Server stopped");
+	}
+
+	/**
+	 * A connection for one Flight call, which the caller closes. The caller is identified by the login
+	 * the authenticator put in the call context:
+	 * <ul>
+	 * <li>users created through the API have their own database file ({@code <data.dir>/users/<login>.duckdb})
+	 * and always get a connection to it;</li>
+	 * <li>users without one (for example the admin created at the first start) keep using the shared
+	 * database, as before.</li>
+	 * </ul>
+	 * Closing a connection returned here never closes the underlying database.
+	 */
+	private Connection connectionFor(CallContext context) throws SQLException {
+		String login = context.peerIdentity();
+		Connection personal = userDatabases.connect(login);
+		if (personal != null) {
+			logger.debug("Flight call of '{}' uses its own database", login);
+			return personal;
+		}
+		logger.debug("Flight call of '{}' uses the shared database", login);
+		return ((DuckDBConnection) this.duckdb).duplicate();
 	}
 
 	// ============================
@@ -358,8 +389,8 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 
 		String sql = new String(descriptor.getCommand(), StandardCharsets.UTF_8);
 
-		try {
-			Schema schema = DuckDBArrowUtil.getSchema(duckdb, sql);
+		try (Connection conn = connectionFor(context)) {
+			Schema schema = DuckDBArrowUtil.getSchema(conn, sql);
 			Ticket ticket = new Ticket(descriptor.getCommand());
 
 			return new FlightInfo(schema, descriptor,
@@ -373,8 +404,8 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	@Override
 	public void getStream(CallContext context, Ticket ticket, ServerStreamListener listener) {
 		String sql = new String(ticket.getBytes(), StandardCharsets.UTF_8);
-		try {
-			DuckDBArrowUtil.streamQuery(duckdb, sql, listener);
+		try (Connection conn = connectionFor(context)) {
+			DuckDBArrowUtil.streamQuery(conn, sql, listener);
 		} catch (Exception e) {
 			logger.error(e);
 			listener.error(CallStatus.INTERNAL.withCause(e).withDescription(e.getMessage()).toRuntimeException());
@@ -397,7 +428,7 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		// Usually, the SQL command is sent in the 'cmd' field of the descriptor
 		String sql = new String(descriptor.getCommand());
 
-		try (Connection conn = this.duckdb) {
+		try (Connection conn = connectionFor(context)) {
 			Schema schema = getSchemaFromSql(conn, sql, this.allocator);
 			return new SchemaResult(schema);
 		} catch (SQLException e) {

@@ -43,4 +43,18 @@ public class UserRepository {
             return null;
         }
     }
+
+	/** Inserts a user; created_at is always set to now(). */
+	public void insert(Connection metadatadb, String username, String passwordHash, String role) throws Exception {
+
+		String sql = "INSERT INTO main.opencanard_users(username, password_hash, \"role\", created_at) "
+				+ "VALUES (?, ?, ?, now());";
+
+		try (PreparedStatement stmt = metadatadb.prepareStatement(sql)) {
+			stmt.setString(1, username);
+			stmt.setString(2, passwordHash);
+			stmt.setString(3, role);
+			stmt.executeUpdate();
+		}
+	}
 }
