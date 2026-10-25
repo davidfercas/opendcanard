@@ -162,13 +162,8 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		}
 
 		Path metadataFile = Paths.get(METADATA_DIR, Config.get("metadatadb.db")).toAbsolutePath().normalize();
-		if (Files.notExists(metadataFile)) {
-			logger.error("Creating " + metadataFile);
-
-			createMetadataDb(metadataFile);                    // first run: table + admin user
-		} else {
-			logger.error("Using existing " + metadataFile);     // later runs: use it as it is
-		}
+		// Idempotent: creates the file, the opencanard_users table and the admin user only if missing
+		createMetadataDb(metadataFile);
 
 
 		// Embedded DuckDB
@@ -431,89 +426,128 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 
 	
 	/**
-	 * First-run setup: creates the metadata database with the opencanard_users table and
-	 * the admin user (admin.user / admin.password), whose password is BCrypt-hashed with the
-	 * same encoder PasswordManager uses.
-	 * <p>
-	 * The database is built in a temporary file and only moved to its final name once it is
-	 * complete and checkpointed. So metadata.duckdb never exists half-initialised (for example
-	 * if the process is killed in the middle): if the file exists, it is finished, and later
-	 * runs can safely skip this step.
+	 * Makes sure the metadata database is ready. Safe to call on every start:
+	 * <ul>
+	 * <li>file missing: the whole database is built in a temporary file and moved to its final
+	 * name only when complete, so metadata.duckdb never exists half-initialised;</li>
+	 * <li>file present: it is opened as it is and the opencanard_users table is created only if
+	 * missing;</li>
+	 * <li>the admin user (admin.user / admin.password, BCrypt-hashed like PasswordManager does)
+	 * is inserted only if that username is not already in the table. An existing user, and its
+	 * password, are never modified.</li>
+	 * </ul>
 	 */
 	private void createMetadataDb(Path metadataFile) throws Exception {
 		long t0 = System.currentTimeMillis();
-		logger.info("[metadata-init] Step 1/9: metadata database not found, creating {}", metadataFile);
-
+		boolean fileExists = Files.exists(metadataFile);
 		Path tmpFile = metadataFile.resolveSibling(metadataFile.getFileName() + ".tmp");
 		Path tmpWal = metadataFile.resolveSibling(metadataFile.getFileName() + ".tmp.wal");
-		logger.info("[metadata-init] Temporary files: {} and {}", tmpFile, tmpWal);
+		// New database: work on the temp file. Existing database: work on it directly.
+		Path workFile = fileExists ? metadataFile : tmpFile;
 
-		try {
+		if (fileExists) {
+			logger.info("[metadata-init] {} exists, checking its content", metadataFile);
+		} else {
+			logger.info("[metadata-init] {} not found, creating it through {}", metadataFile, tmpFile);
 			// Remove leftovers of an earlier interrupted attempt
 			boolean removedTmp = Files.deleteIfExists(tmpFile);
 			boolean removedWal = Files.deleteIfExists(tmpWal);
-			logger.info("[metadata-init] Step 2/9: leftovers removed (tmp={}, tmp.wal={})", removedTmp, removedWal);
+			logger.info("[metadata-init] leftovers removed (tmp={}, tmp.wal={})", removedTmp, removedWal);
+		}
 
-			String tmpUrl = "jdbc:duckdb:" + tmpFile.toAbsolutePath().toString().replace("\\", "/");
-			try (Connection conn = DriverManager.getConnection(tmpUrl)) {
-				logger.info("[metadata-init] Step 3/9: connected to temporary database {}", tmpUrl);
+		try {
+			String workUrl = "jdbc:duckdb:" + workFile.toAbsolutePath().toString().replace("\\", "/");
+			try (Connection conn = DriverManager.getConnection(workUrl)) {
+				logger.info("[metadata-init] connected to {}", workUrl);
 
-				try (Statement stmt = conn.createStatement()) {
-					stmt.execute("CREATE TABLE opencanard_users(username VARCHAR PRIMARY KEY, "
-							+ "password_hash VARCHAR NOT NULL, \"role\" VARCHAR NOT NULL, "
-							+ "created_at TIMESTAMP NOT NULL DEFAULT now())");
-					logger.info("[metadata-init] Step 4/9: table opencanard_users created");
+				// 1. opencanard_users table: create only if it does not exist
+				boolean tableExists;
+				try (Statement stmt = conn.createStatement();
+						ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM information_schema.tables "
+								+ "WHERE table_schema = 'main' AND table_name = 'opencanard_users'")) {
+					tableExists = rs.next() && rs.getInt(1) > 0;
+				}
+				if (tableExists) {
+					logger.info("[metadata-init] table opencanard_users already exists, skipping creation");
+				} else {
+					try (Statement stmt = conn.createStatement()) {
+						stmt.execute("CREATE TABLE opencanard_users(username VARCHAR PRIMARY KEY, "
+								+ "password_hash VARCHAR NOT NULL, \"role\" VARCHAR NOT NULL, "
+								+ "created_at TIMESTAMP NOT NULL DEFAULT now())");
+					}
+					logger.info("[metadata-init] table opencanard_users created");
 				}
 
-				// The password is never logged, only the hash algorithm prefix and length
-				String passwordHash = new BCryptPasswordEncoder().encode(ADMIN_PASSWORD);
-				logger.info("[metadata-init] Step 5/9: password hashed with BCrypt (prefix={}, length={})",
-						passwordHash.substring(0, 7), passwordHash.length());
-
-				try (PreparedStatement ps = conn.prepareStatement(
-						"INSERT INTO opencanard_users(username, password_hash, \"role\", created_at) VALUES (?, ?, ?, now())")) {
+				// 2. admin user: insert only if the username is not already in the table
+				boolean userExists;
+				try (PreparedStatement ps = conn
+						.prepareStatement("SELECT COUNT(*) FROM opencanard_users WHERE username = ?")) {
 					ps.setString(1, ADMIN_USER);
-					ps.setString(2, passwordHash);
-					ps.setString(3, "admin");
-					int rows = ps.executeUpdate();
-					logger.info("[metadata-init] Step 6/9: admin user '{}' inserted with role 'admin' (rows affected: {})",
-							ADMIN_USER, rows);
+					try (ResultSet rs = ps.executeQuery()) {
+						userExists = rs.next() && rs.getInt(1) > 0;
+					}
+				}
+				if (userExists) {
+					logger.info("[metadata-init] user '{}' already exists, skipping insert (password left untouched)",
+							ADMIN_USER);
+				} else {
+					// The password is never logged, only the hash algorithm prefix and length
+					String passwordHash = new BCryptPasswordEncoder().encode(ADMIN_PASSWORD);
+					logger.info("[metadata-init] password hashed with BCrypt (prefix={}, length={})",
+							passwordHash.substring(0, 7), passwordHash.length());
+					try (PreparedStatement ps = conn.prepareStatement(
+							"INSERT INTO opencanard_users(username, password_hash, \"role\", created_at) VALUES (?, ?, ?, now())")) {
+						ps.setString(1, ADMIN_USER);
+						ps.setString(2, passwordHash);
+						ps.setString(3, "admin");
+						int rows = ps.executeUpdate();
+						logger.info("[metadata-init] user '{}' inserted with role 'admin' (rows affected: {})",
+								ADMIN_USER, rows);
+					}
 				}
 
 				// Flush everything into the main file so no .wal is left behind
 				try (Statement stmt = conn.createStatement()) {
 					stmt.execute("CHECKPOINT");
-					logger.info("[metadata-init] Step 7/9: CHECKPOINT done");
+					logger.info("[metadata-init] CHECKPOINT done");
 				}
 			}
-			logger.info("[metadata-init] Temporary database closed ({} bytes, tmp.wal exists: {})",
-					Files.size(tmpFile), Files.exists(tmpWal));
 
-			Files.move(tmpFile, metadataFile, StandardCopyOption.ATOMIC_MOVE);
-			logger.info("[metadata-init] Step 8/9: {} moved to {}", tmpFile.getFileName(), metadataFile);
+			if (!fileExists) {
+				logger.info("[metadata-init] temporary database closed ({} bytes, tmp.wal exists: {})",
+						Files.size(tmpFile), Files.exists(tmpWal));
+				Files.move(tmpFile, metadataFile, StandardCopyOption.ATOMIC_MOVE);
+				logger.info("[metadata-init] {} moved to {}", tmpFile.getFileName(), metadataFile);
+			}
 
-			// Final check: reopen the finished file and read the admin user back
+			// Final check: reopen the file and read the users back
 			String finalUrl = "jdbc:duckdb:" + metadataFile.toAbsolutePath().toString().replace("\\", "/");
 			int users = 0;
+			boolean adminFound = false;
 			try (Connection conn = DriverManager.getConnection(finalUrl);
 					Statement stmt = conn.createStatement();
 					ResultSet rs = stmt.executeQuery(
-							"SELECT username, \"role\", created_at FROM opencanard_users")) {
+							"SELECT username, \"role\", created_at FROM opencanard_users ORDER BY username")) {
 				while (rs.next()) {
 					users++;
-					logger.info("[metadata-init] Step 9/9: verified user '{}' role '{}' created_at {}",
-							rs.getString("username"), rs.getString("role"), rs.getTimestamp("created_at"));
+					String username = rs.getString("username");
+					adminFound |= ADMIN_USER.equals(username);
+					logger.info("[metadata-init] verified user '{}' role '{}' created_at {}", username,
+							rs.getString("role"), rs.getTimestamp("created_at"));
 				}
-				if (users == 0) {
-					throw new IllegalStateException("Metadata database was created but opencanard_users is empty");
-				}
+			}
+			if (!adminFound) {
+				throw new IllegalStateException("User '" + ADMIN_USER + "' not found in opencanard_users after setup");
 			}
 			logger.info("[metadata-init] DONE: {} ({} bytes, {} user(s)) in {} ms", metadataFile,
 					Files.size(metadataFile), users, System.currentTimeMillis() - t0);
 		} catch (Exception e) {
-			logger.error("[metadata-init] FAILED after {} ms, cleaning up temporary files", System.currentTimeMillis() - t0, e);
-			Files.deleteIfExists(tmpFile);
-			Files.deleteIfExists(tmpWal);
+			logger.error("[metadata-init] FAILED after {} ms", System.currentTimeMillis() - t0, e);
+			// Only the temporary files are cleaned up: an existing metadata.duckdb is never deleted
+			if (!fileExists) {
+				Files.deleteIfExists(tmpFile);
+				Files.deleteIfExists(tmpWal);
+			}
 			throw e;
 		}
 	}
