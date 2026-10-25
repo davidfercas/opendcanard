@@ -69,6 +69,10 @@ See [Deployment](deployment.md) for the systemd service and Docker image.
 ## Logging
 
 Logging is defined in `conf/log4j2.xml`: INFO level to the console and to `logs/opencanard.log`.
+The start scripts load it with `-Dlog4j.configurationFile=<install>/conf/log4j2.xml`, because `conf/` is not
+on the classpath. If you start the JVM by other means, pass that property yourself; without it log4j uses
+its built-in default and only prints ERROR messages to the console. Add `-Dlog4j2.debug=true` to see which
+configuration file log4j loaded.
 The log file path in that file is relative to the **working directory** the server is started from,
 not to `log.dir`. `bin/start.sh` changes into the installation directory before starting the server, so
 the log ends up in `logs/`; if you start the JVM by other means, do it from the installation directory.

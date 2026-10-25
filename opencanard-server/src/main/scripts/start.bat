@@ -13,6 +13,9 @@ set JAVA_OPTS=%JAVA_OPTS% -Dconf.dir=%BASE_DIR%\conf
 set JAVA_OPTS=%JAVA_OPTS% -Dmetadata.dir=%BASE_DIR%\metadata
 set JAVA_OPTS=%JAVA_OPTS% -Ddata.dir=%BASE_DIR%\data
 set JAVA_OPTS=%JAVA_OPTS% -Dlog.dir=%BASE_DIR%\logs
+REM Without this, log4j does not find conf\log4j2.xml (conf is not on the classpath)
+REM and falls back to its default, which only prints ERROR to the console.
+set JAVA_OPTS=%JAVA_OPTS% -Dlog4j.configurationFile=%BASE_DIR%\conf\log4j2.xml
 
 REM Admin user created when the metadata database is created for the first time.
 REM Set OPENCANARD_ADMIN_USER and OPENCANARD_ADMIN_PASSWORD before running this script.

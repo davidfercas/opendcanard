@@ -37,6 +37,9 @@ JAVA_OPTS="$JAVA_OPTS -Dconf.dir=$BASE_DIR/conf"
 JAVA_OPTS="$JAVA_OPTS -Dmetadata.dir=$BASE_DIR/metadata"
 JAVA_OPTS="$JAVA_OPTS -Ddata.dir=$BASE_DIR/data"
 JAVA_OPTS="$JAVA_OPTS -Dlog.dir=$BASE_DIR/logs"
+# Without this, log4j does not find conf/log4j2.xml (conf/ is not on the classpath)
+# and falls back to its default, which only prints ERROR to the console.
+JAVA_OPTS="$JAVA_OPTS -Dlog4j.configurationFile=$BASE_DIR/conf/log4j2.xml"
 
 # Admin credentials (kept in an array so spaces/special characters in the password survive)
 ADMIN_OPTS=("-Dadmin.user=$OPENCANARD_ADMIN_USER" "-Dadmin.password=$OPENCANARD_ADMIN_PASSWORD")
