@@ -58,5 +58,20 @@ curl -s http://localhost:8084/management/users -u admin:change-me
   check for the `admin` role.
 - The JWT signing secret is a constant in the source code, so tokens can be forged by anyone who has
   read it. See [Known limitations](authentication.md#known-limitations).
-- The users table must exist in the metadata database before login or any management call will work.
-  See [Creating users](authentication.md#creating-users).
+- Login and the management calls read the users table in the metadata database. The server creates it
+  with the first admin user on the first start. See [Creating users](authentication.md#creating-users).
+
+## Code layout
+
+All REST code is in the `io.opencanard.rest` package; `OpenCanardServer` only creates, starts and stops it.
+
+| Class | Role |
+| --- | --- |
+| `RestApiServer` | Initializes Javalin: OpenAPI and Swagger plugins, port, start and stop. |
+| `RestRoutes` | The route table: which URL goes to which handler. |
+| `AuthMiddleware` | Basic / Bearer authentication for `/management/*`. |
+| `OpenCanardApiController` | The endpoint handlers and their `@OpenApi` annotations. |
+| `LoginRequest`, `LoginResponse` | Request and response bodies of `POST /api/login`. |
+
+To add an endpoint, add a handler method (with its `@OpenApi` annotation) to `OpenCanardApiController` and
+register it in `RestRoutes`.

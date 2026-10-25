@@ -1,4 +1,4 @@
-package io.opencanard.api;
+package io.opencanard.rest;
 
 public class LoginRequest {
     public String username;

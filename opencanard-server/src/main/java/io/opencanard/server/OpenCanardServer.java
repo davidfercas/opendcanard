@@ -14,10 +14,7 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.List;
-import java.util.Map;
 
 import org.apache.arrow.adapter.jdbc.JdbcToArrowConfig;
 import org.apache.arrow.adapter.jdbc.JdbcToArrowConfigBuilder;
@@ -45,18 +42,10 @@ import org.apache.logging.log4j.Logger;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import io.grpc.internal.LogExceptionRunnable;
-import io.javalin.Javalin;
-import io.javalin.http.ForbiddenResponse;
-import io.javalin.openapi.plugin.OpenApiPlugin;
-import io.javalin.openapi.plugin.swagger.SwaggerPlugin;
-import io.opencanard.api.OpenCanardApiController;
 import io.opencanard.auth.OpenCanardAuthenticator;
 import io.opencanard.conf.Config;
-import io.opencanard.user.User;
-import io.opencanard.user.UserRepository;
+import io.opencanard.rest.RestApiServer;
 import io.opencanard.util.DuckDBArrowUtil;
-import io.swagger.v3.oas.models.Components;
-import io.swagger.v3.oas.models.security.SecurityScheme;
 
 public class OpenCanardServer implements FlightProducer, AutoCloseable {
 
@@ -64,13 +53,8 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	private final Connection metadatadb;
 	private final FlightServer server;
 	private final BufferAllocator allocator;
-	private final Javalin restServer; // New REST server instance
+	private final RestApiServer restApi; // REST API, see io.opencanard.rest
 	
-	private final OpenCanardApiController openCanardApiController;
-
-	private int restPort = 8080;
-	
-	private final String JWT_SECRET = "your-super-secret-key-change-this";
 	
 	
 	private static final Logger logger = LogManager.getLogger(OpenCanardServer.class);
@@ -210,221 +194,10 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		this.server = FlightServer.builder(this.allocator, location, this).headerAuthenticator(new OpenCanardAuthenticator(this.metadatadb)).build();
 		//this.server = FlightServer.builder(this.allocator, location, this).headerAuthenticator(CallHeaderAuthenticator.NO_OP).build(); 
 		
-		// 3. REST API Setup (using Javalin)
-		
-		this.openCanardApiController = new OpenCanardApiController(this.duckdb, this.metadatadb);
-		
-        this.restServer = Javalin.create(config -> {
-            // Registered exactly as per the doc structure
-        	config.registerPlugin(new OpenApiPlugin(openapi -> {
-        	    openapi.withDefinitionConfiguration((version, builder) -> {
-        	        builder.info(info -> {
-        	            info.title("OpenCanard API");
-        	            info.description("REST API to interact with OpenCanard server");
-        	        });
-        	    });
-//        	    openapi.withDefinitionProcessor(content -> {
-//        	        try {
-//        	            com.fasterxml.jackson.databind.node.ObjectNode bearerScheme = content.objectNode();
-//        	            bearerScheme.put("type", "http");
-//        	            bearerScheme.put("scheme", "bearer");
-//        	            bearerScheme.put("bearerFormat", "JWT");
-//
-//        	            com.fasterxml.jackson.databind.node.ObjectNode securitySchemes = content.objectNode();
-//        	            securitySchemes.set("bearerAuth", bearerScheme);
-//
-//        	            com.fasterxml.jackson.databind.node.ObjectNode components = content.objectNode();
-//        	            components.set("securitySchemes", securitySchemes);
-//        	            content.set("components", components);
-//
-//        	              
-//        	        } catch (Exception e) {
-//        	            logger.error("Failed to inject security scheme", e);
-//        	            
-//        	        }
-//        	        finally {
-//        	        	return content.toString();
-//					}
-//        	    });
-        	    openapi.withDefinitionProcessor(content -> {
-        	        try {
-        	            com.fasterxml.jackson.databind.node.ObjectNode components = 
-        	                content.has("components") 
-        	                    ? (com.fasterxml.jackson.databind.node.ObjectNode) content.get("components")
-        	                    : content.objectNode();
-
-        	            com.fasterxml.jackson.databind.node.ObjectNode basicScheme = content.objectNode();
-        	            basicScheme.put("type", "http");
-        	            basicScheme.put("scheme", "basic");
-
-        	            com.fasterxml.jackson.databind.node.ObjectNode securitySchemes = content.objectNode();
-        	            securitySchemes.set("basicAuth", basicScheme);
-
-        	            components.set("securitySchemes", securitySchemes);
-        	            content.set("components", components);
-
-//        	            com.fasterxml.jackson.databind.node.ArrayNode securityArray = content.arrayNode();
-//        	            com.fasterxml.jackson.databind.node.ObjectNode securityItem = content.objectNode();
-//        	            securityItem.set("basicAuth", content.arrayNode());
-//        	            securityArray.add(securityItem);
-//        	            content.set("security", securityArray);
-
-        	        } catch (Exception e) {
-        	            logger.error("Failed to inject security scheme", e);
-        	        } finally {
-        	            return content.toString();
-        	        }
-        	    });       	    
-        	}));
-            
-
-            config.registerPlugin(new SwaggerPlugin());
-            
-            // Set port and handle routes encapsulation
-            config.jetty.port = this.restPort;
-            setupRestRoutes(config.routes);
-        });
-        
-
-		
-        // Set REST API port
-        this.restPort = Config.getInt("opencanard.rest.port");
-		
-       // setupRestRoutes();
-
+		// REST API (Javalin): all endpoints live in the io.opencanard.rest package
+		this.restApi = new RestApiServer(this.duckdb, this.metadatadb, Config.getInt("opencanard.rest.port"));
 	}
 
-	
-	private void setupRestRoutes(io.javalin.config.RoutesConfig routes) {
-		
-	    // PUBLIC LOGIN: Exchange credentials for a Token
-	    routes.post("/api/login", this.openCanardApiController::handleLogin);
-
-	    // MIDDLEWARE: Protect management routes using the Token
-	    routes.before("/management/*", ctx -> {
-	        String authHeader = ctx.header("Authorization");
-	        if (authHeader == null) {
-	            throw new io.javalin.http.UnauthorizedResponse("Missing credentials");
-	        }
-
-	        if (authHeader.startsWith("Basic ")) {
-	            try {
-	                String base64 = authHeader.substring(6);
-	                String decoded = new String(java.util.Base64.getDecoder().decode(base64));
-	                String[] parts = decoded.split(":", 2);
-	                String username = parts[0];
-	                String password = parts[1];
-
-	                User user = this.openCanardApiController.authenticateUser(username, password);
-	                if (user == null) {
-	                    throw new io.javalin.http.UnauthorizedResponse("Invalid credentials");
-	                }
-
-	                ctx.attribute("userRoles", user.getRoles());
-	                ctx.attribute("username", user.getUsername());
-
-	            } catch (io.javalin.http.UnauthorizedResponse e) {
-	                throw e;
-	            } catch (Exception e) {
-	                throw new io.javalin.http.UnauthorizedResponse("Invalid Authorization header");
-	            }
-
-	        } else if (authHeader.startsWith("Bearer ")) {
-	            try {
-	                String token = authHeader.substring(7);
-	                var verifier = com.auth0.jwt.JWT.require(
-	                    com.auth0.jwt.algorithms.Algorithm.HMAC256(JWT_SECRET)).build();
-	                var decoded = verifier.verify(token);
-	                List<String> roles = decoded.getClaim("roles").asList(String.class);
-	                ctx.attribute("userRoles", roles);
-	                ctx.attribute("username", decoded.getClaim("username").asString());
-	            } catch (Exception e) {
-	                throw new io.javalin.http.UnauthorizedResponse("Invalid Token");
-	            }
-
-	        } else {
-	            throw new io.javalin.http.UnauthorizedResponse("Missing credentials");
-	        }
-	    });
-		
-	    routes.get("/health", this.openCanardApiController::handleHealthCheck);
-	    
-	    // Example: Manage the server (e.g., check metadata)
-	    routes.get("/management/databases", this.openCanardApiController::listDatabases);
-
-	    routes.get("/management/schemas", ctx -> {
-	        List<Map<String, Object>> databases = new ArrayList<>();
-	        
-	        List<String> roles = ctx.attribute("userRoles");
-	        
-	        if (roles == null || !roles.contains("admin")) {
-	            throw new io.javalin.http.ForbiddenResponse("You need the ADMIN role to perform this action.");
-	        }
-	        
-	        // Query the DuckDB catalog
-	        try (Statement stmt = this.duckdb.createStatement();
-	             ResultSet rs = stmt.executeQuery("SELECT * FROM duckdb_schemas();")) {
-	            
-	            while (rs.next()) {
-	                databases.add(Map.of(
-	                    "oid", rs.getLong("oid"),
-	                    "database_name", rs.getString("database_name"),
-	                    "database_oid", rs.getLong("database_oid"),
-	                    "schema_name", rs.getString("schema_name"),
-	                    "comment", rs.getString("comment") != null ? rs.getString("comment") : "",
-	                    "tags", rs.getObject("tags") != null ? rs.getObject("tags") : Collections.emptyMap(),
-	                    "internal", rs.getBoolean("internal"),
-	                    "sql", rs.getString("sql") != null ? rs.getString("sql") : ""
-	                ));
-	            }
-	            
-	            ctx.json(databases);
-	        } catch (SQLException e) {
-	            logger.error("Failed to fetch databases", e);
-	            ctx.status(500).result("Internal Server Error: " + e.getMessage());
-	        }
-	    });
-	    
-	    routes.get("/management/users", ctx -> {
-	        List<Map<String, Object>> databases = new ArrayList<>();
-	        
-	        List<String> roles = ctx.attribute("userRoles");
-	        
-	        if (roles == null || !roles.contains("admin")) {
-	            throw new io.javalin.http.ForbiddenResponse("You need the ADMIN role to perform this action.");
-	        }
-	        
-	        // Query the DuckDB catalog
-	        try (Statement stmt = this.metadatadb.createStatement();
-	             ResultSet rs = stmt.executeQuery("SELECT * FROM opencanard_users;")) {
-	            
-	            while (rs.next()) {
-	                databases.add(Map.of(
-	                    "username", rs.getString("username"),
-	                    "role", rs.getString("role") != null ? rs.getString("role") : "USER",
-	                    "created_at", rs.getTimestamp("created_at").toString()
-	                ));
-	            }
-	            
-	            ctx.json(databases);
-	        } catch (SQLException e) {
-	            logger.error("Failed to fetch databases", e);
-	            ctx.status(500).result("Internal Server Error: " + e.getMessage());
-	        }
-	    });        
-	    
-	    // Example: Shutdown via API
-	    routes.post("/management/shutdown", ctx -> {
-	        ctx.result("Shutting down...");
-	        System.exit(0);
-	    });
-	}
-	
-
-
-	
-
-	
 	/**
 	 * Makes sure the metadata database is ready. Safe to call on every start:
 	 * <ul>
@@ -558,13 +331,8 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		System.out.println("OpenCanard Server started at " + server.getLocation());
 		logger.info("OpenCanard Server started at " + server.getLocation());
 		
-		// Start REST Server (use a different port from Config)
-        
-        restServer.start(this.restPort);
-        
-        System.out.println("REST API started at http://localhost:" + this.restPort);
-		
-		
+		// Start REST Server
+		restApi.start();
 	}
 
 	@Override
@@ -572,7 +340,7 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		logger.info("Stopping OpenCanard Server");
 		this.server.close();
 		this.duckdb.close();
-		this.restServer.stop();
+		this.restApi.stop();
 		logger.info("OpenCanard Server stopped");
 	}
 

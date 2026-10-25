@@ -1,10 +1,11 @@
-package io.opencanard.api;
+package io.opencanard.rest;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -24,7 +25,8 @@ public class OpenCanardApiController {
 	private final Connection metadatadb;
 	private final Connection duckdb;
 	
-	private final String JWT_SECRET = "your-super-secret-key-change-this";
+	// Shared with AuthMiddleware, which verifies the tokens issued by handleLogin
+	static final String JWT_SECRET = "your-super-secret-key-change-this";
 	
 	public OpenCanardApiController(Connection duckdb, Connection metadatadb) {
 		super();
@@ -80,11 +82,7 @@ public class OpenCanardApiController {
 		
 		List<Map<String, Object>> databases = new ArrayList<>();
         
-        List<String> roles = ctx.attribute("userRoles");
-        
-        if (roles == null || !roles.contains("admin")) {
-            throw new io.javalin.http.ForbiddenResponse("You need the ADMIN role to perform this action.");
-        }
+        requireAdmin(ctx);
         
         // Query the DuckDB catalog
         try (Statement stmt = this.duckdb.createStatement();
@@ -104,6 +102,70 @@ public class OpenCanardApiController {
 	}
 	
 	
+	public void listSchemas(io.javalin.http.Context ctx) {
+		requireAdmin(ctx);
+
+		List<Map<String, Object>> schemas = new ArrayList<>();
+
+		// Query the DuckDB catalog
+		try (Statement stmt = this.duckdb.createStatement();
+				ResultSet rs = stmt.executeQuery("SELECT * FROM duckdb_schemas();")) {
+
+			while (rs.next()) {
+				schemas.add(Map.of(
+						"oid", rs.getLong("oid"),
+						"database_name", rs.getString("database_name"),
+						"database_oid", rs.getLong("database_oid"),
+						"schema_name", rs.getString("schema_name"),
+						"comment", rs.getString("comment") != null ? rs.getString("comment") : "",
+						"tags", rs.getObject("tags") != null ? rs.getObject("tags") : Collections.emptyMap(),
+						"internal", rs.getBoolean("internal"),
+						"sql", rs.getString("sql") != null ? rs.getString("sql") : ""));
+			}
+
+			ctx.json(schemas);
+		} catch (SQLException e) {
+			logger.error("Failed to fetch schemas", e);
+			ctx.status(500).result("Internal Server Error: " + e.getMessage());
+		}
+	}
+
+	public void listUsers(io.javalin.http.Context ctx) {
+		requireAdmin(ctx);
+
+		List<Map<String, Object>> users = new ArrayList<>();
+
+		try (Statement stmt = this.metadatadb.createStatement();
+				ResultSet rs = stmt.executeQuery("SELECT * FROM opencanard_users;")) {
+
+			while (rs.next()) {
+				users.add(Map.of(
+						"username", rs.getString("username"),
+						"role", rs.getString("role") != null ? rs.getString("role") : "USER",
+						"created_at", rs.getTimestamp("created_at").toString()));
+			}
+
+			ctx.json(users);
+		} catch (SQLException e) {
+			logger.error("Failed to fetch users", e);
+			ctx.status(500).result("Internal Server Error: " + e.getMessage());
+		}
+	}
+
+	public void shutdown(io.javalin.http.Context ctx) {
+		ctx.result("Shutting down...");
+		System.exit(0);
+	}
+
+	/** Throws 403 unless the authenticated user (set by AuthMiddleware) has the admin role. */
+	private void requireAdmin(io.javalin.http.Context ctx) {
+		List<String> roles = ctx.attribute("userRoles");
+		if (roles == null || !roles.contains("admin")) {
+			throw new io.javalin.http.ForbiddenResponse("You need the ADMIN role to perform this action.");
+		}
+	}
+
+
 	@io.javalin.openapi.OpenApi(
 		    path = "/api/login",
 		    methods = io.javalin.openapi.HttpMethod.POST,
