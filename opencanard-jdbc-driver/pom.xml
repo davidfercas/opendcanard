@@ -92,6 +92,21 @@
 								<relocation><pattern>com.google.common</pattern><shadedPattern>io.opencanard.shaded.com.google.common</shadedPattern></relocation>
 								<relocation><pattern>com.google.thirdparty</pattern><shadedPattern>io.opencanard.shaded.com.google.thirdparty</shadedPattern></relocation>
 							</relocations>
+							<!-- The shade plugin's ASM cannot read the Java 22 classes in multi-release jars
+							     (META-INF/versions/22 in jackson-core: "Unsupported class file major version 66"),
+							     and module-info.class would break encapsulation once relocated. -->
+							<filters>
+								<filter>
+									<artifact>*:*</artifact>
+									<excludes>
+										<exclude>META-INF/versions/**</exclude>
+										<exclude>module-info.class</exclude>
+										<exclude>META-INF/*.SF</exclude>
+										<exclude>META-INF/*.DSA</exclude>
+										<exclude>META-INF/*.RSA</exclude>
+									</excludes>
+								</filter>
+							</filters>
 							<artifactSet>
 								<excludes>
 									<exclude>io.netty:netty-transport-native-epoll</exclude>
