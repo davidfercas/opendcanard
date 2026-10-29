@@ -8,20 +8,24 @@ public class OpenCanardDriver implements Driver {
     static {
         try {
             DriverManager.registerDriver(new OpenCanardDriver());
+            DriverDiagnostics.debug("OpenCanard JDBC driver registered, loaded from {}",
+                    DriverDiagnostics.locationOf(OpenCanardDriver.class));
         } catch (SQLException e) {
             throw new RuntimeException(e);
         }
     }
 
     @Override
-    public Connection connect(String url, java.util.Properties info) {
+    public Connection connect(String url, java.util.Properties info) throws SQLException {
         if (!acceptsURL(url)) return null;
+        DriverDiagnostics.configure(url, info);
+        DriverDiagnostics.debug("connect({})", url);
         return new OpenCanardConnection(url, info);
     }
 
     @Override
     public boolean acceptsURL(String url) {
-        return url.startsWith(OpenCanardConstants.URL_TYPE);
+        return url != null && url.startsWith(OpenCanardConstants.URL_TYPE);
     }
 
 	@Override

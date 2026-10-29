@@ -4,8 +4,6 @@ import org.apache.arrow.flight.*;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.InputStream;
 import java.io.Reader;
@@ -16,7 +14,6 @@ import java.sql.Date;
 import java.util.*;
 
 public class OpenCanardResultSet implements ResultSet {
-    private static final Logger logger = LogManager.getLogger(OpenCanardResultSet.class);
 
     private final Statement statement;
     private final FlightClient client;
@@ -43,6 +40,8 @@ public class OpenCanardResultSet implements ResultSet {
         // even if we haven't started iterating with next() yet.
         if (currentStream != null && currentStream.next()) {
             this.currentBatch = currentStream.getRoot();
+            DriverDiagnostics.debug("First batch received: {} rows, {} columns", currentBatch.getRowCount(),
+                    currentBatch.getFieldVectors().size());
             // Since we just physically moved the stream to the first batch,
             // we set rowIndex to -1 so that the FIRST call to next() 
             // correctly points to index 0.
@@ -57,9 +56,11 @@ public class OpenCanardResultSet implements ResultSet {
             if (endpointIndex >= endpoints.size()) return false;
 
             Ticket ticket = endpoints.get(endpointIndex++).getTicket();
+            DriverDiagnostics.debug("Opening Flight stream {} of {}", endpointIndex, endpoints.size());
             currentStream = client.getStream(ticket, authOption);
             return true;
         } catch (Exception e) {
+            DriverDiagnostics.debugError("Failed to open Flight stream " + endpointIndex, e);
             throw new SQLException("Failed to open Flight stream", e);
         }
     }

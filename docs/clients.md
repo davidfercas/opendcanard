@@ -90,3 +90,25 @@ The driver is intentionally minimal and targets `SELECT` queries. Prepared state
 statements are not supported (`prepareStatement` and `prepareCall` throw
 `SQLFeatureNotSupportedException`), and the driver reports itself as not fully JDBC compliant.
 Use plain `Statement` objects.
+
+### Debugging the JDBC driver
+
+Turn on debug output with any of:
+
+- JVM option `-Dopencanard.jdbc.debug=true` (for Denodo, add it to the VDP server JVM options);
+- environment variable `OPENCANARD_JDBC_DEBUG=true`;
+- `debug=true` as a connection property, or in the URL: `jdbc:opencanard://host:8815/?debug=true`.
+
+Output goes to stderr and is appended to `<java.io.tmpdir>/opencanard-jdbc-debug.log` (change it with
+`-Dopencanard.jdbc.debug.file=<path>`). It shows the driver jar location, the Java and class loader
+details, where gRPC, Netty, Guava, Protobuf and Arrow are loaded from, each connection (the password is
+never written), each SQL statement and its timings. The same lines go to log4j when the logger
+`io.opencanard.driver.jdbc` is set to DEBUG.
+
+SQL text is logged, so do not leave debug on in production.
+
+Connection failures are always reported, even with debug off: the full cause chain goes to stderr and into
+the `SQLException` message. This matters for `Could not initialize class ...` errors, because the JVM only
+reports the real cause the first time; the driver keeps that first failure and repeats it in later errors.
+
+`OpenCanardJdbcClient` is a test client: `java -cp <driver jar> io.opencanard.driver.jdbc.OpenCanardJdbcClient [url] [user] [password] [sql]`.

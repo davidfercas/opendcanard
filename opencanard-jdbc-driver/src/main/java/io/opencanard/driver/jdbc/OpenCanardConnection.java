@@ -24,12 +24,9 @@ import org.apache.arrow.flight.FlightClient;
 import org.apache.arrow.flight.Location;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 public class OpenCanardConnection implements Connection {
 
-	private static final Logger logger = LogManager.getLogger(OpenCanardConnection.class);
 
 	private final BufferAllocator allocator;
 	private final FlightClient client;
@@ -44,39 +41,76 @@ public class OpenCanardConnection implements Connection {
 	private String schema = "main";
 	private String catalog = "memory";
 
-	public OpenCanardConnection(String url, Properties props) {
-		this.allocator = new RootAllocator(Long.MAX_VALUE);
+	public OpenCanardConnection(String url, Properties props) throws SQLException {
+		if (props == null) {
+			props = new Properties();
+		}
+		DriverDiagnostics.configure(url, props);
+		DriverDiagnostics.logEnvironmentOnce();
 
-		String token = props.getProperty("token");
-		this.token = token;
+		this.token = props.getProperty("token");
 		this.user = props.getProperty("user");
 		this.password = props.getProperty("password");
+		DriverDiagnostics.debug("Opening connection: url={}, user={}, password={}, token={}", url, this.user,
+				this.password == null ? "not set" : "set", this.token == null ? "not set" : "set");
 
-		String urlWithoutPrefix = url.replaceFirst("jdbc:opencanard://", "");
-		String[] hostPortAndDb = urlWithoutPrefix.split("/");
-		String hostPort = hostPortAndDb[0]; // "[2001:db8::1]:3306" or "[2001:db8::1]"
-
-		int port = OpenCanardConstants.DEFAULT_PORT;
-		String host = "localhost";
-
-		if (hostPort.startsWith("[") && hostPort.endsWith("]")) {
-			// IPv6 without port
-			host = hostPort.substring(1, hostPort.length() - 1);
-		} else if (hostPort.startsWith("[") && hostPort.contains("]:")) {
-			// IPv6 with port
-			String[] parts = hostPort.split("]:");
-			host = parts[0].substring(1);
-			port = Integer.parseInt(parts[1]);
-		} else {
-			// IPv4 or hostname
-			String[] parts = hostPort.split(":");
-			host = parts[0];
-			port = parts.length > 1 ? Integer.parseInt(parts[1]) : OpenCanardConstants.DEFAULT_PORT;
+		// Drop a query string such as ?debug=true before parsing host and port
+		String cleanUrl = url;
+		int query = cleanUrl.indexOf('?');
+		if (query >= 0) {
+			cleanUrl = cleanUrl.substring(0, query);
 		}
 
-		Location location = Location.forGrpcInsecure(host, port);
-		this.client = FlightClient.builder(allocator, location).build();
+		String host = "localhost";
+		int port = OpenCanardConstants.DEFAULT_PORT;
+		try {
+			String urlWithoutPrefix = cleanUrl.replaceFirst("jdbc:opencanard://", "");
+			String[] hostPortAndDb = urlWithoutPrefix.split("/");
+			String hostPort = hostPortAndDb[0]; // "[2001:db8::1]:3306" or "[2001:db8::1]"
 
+			if (hostPort.startsWith("[") && hostPort.endsWith("]")) {
+				// IPv6 without port
+				host = hostPort.substring(1, hostPort.length() - 1);
+			} else if (hostPort.startsWith("[") && hostPort.contains("]:")) {
+				// IPv6 with port
+				String[] parts = hostPort.split("]:");
+				host = parts[0].substring(1);
+				port = Integer.parseInt(parts[1]);
+			} else {
+				// IPv4 or hostname
+				String[] parts = hostPort.split(":");
+				host = parts[0].isEmpty() ? "localhost" : parts[0];
+				port = parts.length > 1 ? Integer.parseInt(parts[1]) : OpenCanardConstants.DEFAULT_PORT;
+			}
+		} catch (RuntimeException e) {
+			throw new SQLException("Invalid OpenCanard URL '" + cleanUrl
+					+ "', expected jdbc:opencanard://host[:port]: " + e.getMessage(), e);
+		}
+		DriverDiagnostics.debug("Target: host={}, port={}", host, port);
+
+		BufferAllocator newAllocator = null;
+		try {
+			long start = System.nanoTime();
+			newAllocator = new RootAllocator(Long.MAX_VALUE);
+			DriverDiagnostics.debug("Arrow allocator created");
+			Location location = Location.forGrpcInsecure(host, port);
+			DriverDiagnostics.debug("Building the Flight client (this loads gRPC and Netty)...");
+			FlightClient newClient = FlightClient.builder(newAllocator, location).build();
+			this.allocator = newAllocator;
+			this.client = newClient;
+			DriverDiagnostics.debug("Flight client ready in {} ms", (System.nanoTime() - start) / 1_000_000);
+		} catch (Throwable t) {
+			if (t instanceof VirtualMachineError && !(t instanceof StackOverflowError)) {
+				throw (VirtualMachineError) t;
+			}
+			if (newAllocator != null) {
+				try {
+					newAllocator.close();
+				} catch (Throwable ignored) {
+				}
+			}
+			throw DriverDiagnostics.connectFailure(t, host, port);
+		}
 	}
 
 	@Override

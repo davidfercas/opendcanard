@@ -7,11 +7,8 @@ import java.util.Base64;
 
 import org.apache.arrow.flight.*;
 import org.apache.arrow.memory.BufferAllocator;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 public class OpenCanardStatement implements Statement {
-    private static final Logger logger = LogManager.getLogger(OpenCanardStatement.class);
 
     private final FlightClient client;
     private final BufferAllocator allocator;
@@ -54,12 +51,16 @@ public class OpenCanardStatement implements Statement {
         closeCurrentResults();
 
         try {
+            DriverDiagnostics.debug("execute: user={}, sql={}", this.username, DriverDiagnostics.abbreviate(sql));
+            long start = System.nanoTime();
             CallOption auth = createBasicAuthOption(this.username, this.password);
             FlightDescriptor descriptor = FlightDescriptor.command(sql.getBytes(StandardCharsets.UTF_8));
-            
+
             // 1. Get FlightInfo to see where data is and how many rows (if known)
             FlightInfo info = client.getInfo(descriptor, auth);
-            
+            DriverDiagnostics.debug("getInfo done in {} ms: endpoints={}, records={}",
+                    (System.nanoTime() - start) / 1_000_000, info.getEndpoints().size(), info.getRecords());
+
             // 2. Determine if this is a query (Result Set) or an update
             if (info.getEndpoints().isEmpty()) {
                 // Likely a DDL/DML with no return data
@@ -74,6 +75,7 @@ public class OpenCanardStatement implements Statement {
                 return true;
             }
         } catch (Exception e) {
+            DriverDiagnostics.debugError("execute failed for sql=" + DriverDiagnostics.abbreviate(sql), e);
             throw new SQLException("Error executing OpenCanard query: " + e.getMessage(), e);
         }
     }

@@ -5,20 +5,25 @@ import java.util.Properties;
 
 public class OpenCanardJdbcClient {
 
+    /**
+     * Usage: OpenCanardJdbcClient [url] [user] [password] [sql]
+     * Add -Dopencanard.jdbc.debug=true (or ?debug=true to the url) for debug output.
+     */
     public static void main(String[] args) throws Exception {
 
         // 1️⃣ Load driver (optional if using SPI, but explicit is safer now)
         Class.forName("io.opencanard.driver.jdbc.OpenCanardDriver");
 
         // 2️⃣ JDBC URL (match your driver format)
-        String url = "jdbc:opencanard://localhost:8815";
+        String url = args.length > 0 ? args[0] : "jdbc:opencanard://localhost:8815";
+        String sql = args.length > 3 ? args[3] : "SELECT * from cities order by id";
         Properties props = new Properties();
-        props.setProperty("user", "admin");
-        props.setProperty("password", "admin");
+        props.setProperty("user", args.length > 1 ? args[1] : "admin");
+        props.setProperty("password", args.length > 2 ? args[2] : "admin");
 
         try (Connection conn = DriverManager.getConnection(url ,props);
              Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT * from cities order by id")) {
+             ResultSet rs = stmt.executeQuery(sql)) {
 
             System.out.println("Connected to OpenCanard!\n");
 
