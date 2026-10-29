@@ -3,6 +3,7 @@ package io.opencanard.driver.jdbc;
 import org.apache.arrow.flight.*;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 
 import java.io.InputStream;
@@ -26,6 +27,8 @@ public class OpenCanardResultSet implements ResultSet {
     private int rowIndex = -1;
     private boolean closed = false;
     private boolean lastWasNull = false;
+    private int rowNumber = 0;
+    private boolean afterLast = false;
 
     public OpenCanardResultSet(Statement statement, FlightInfo info, CallOption auth) throws SQLException {
         this.statement = statement;
@@ -77,6 +80,13 @@ public class OpenCanardResultSet implements ResultSet {
     @Override
     public boolean next() throws SQLException {
         checkClosed();
+        if (afterLast) return false;
+        boolean has = nextRow();
+        if (has) rowNumber++; else afterLast = true;
+        return has;
+    }
+
+    private boolean nextRow() throws SQLException {
         
         if (currentStream == null) return false;
 
@@ -88,11 +98,11 @@ public class OpenCanardResultSet implements ResultSet {
                 currentBatch = currentStream.getRoot();
                 rowIndex = 0;
                 // Recursive check for empty batches
-                if (currentBatch.getRowCount() == 0) return next(); 
+                if (currentBatch.getRowCount() == 0) return nextRow(); 
             } else {
                 // Current stream exhausted, try next endpoint/stream
                 if (moveToNextStream()) {
-                    return next();
+                    return nextRow();
                 }
                 return false;
             }
@@ -103,21 +113,59 @@ public class OpenCanardResultSet implements ResultSet {
     @Override
     public Object getObject(int columnIndex) throws SQLException {
         checkClosed();
-        if (currentBatch == null || rowIndex < 0) throw new SQLException("Cursor out of bounds");
-        
+        if (currentBatch == null || rowIndex < 0 || rowIndex >= currentBatch.getRowCount()) {
+            throw new SQLException("Cursor out of bounds: call next() before reading values");
+        }
+        if (columnIndex < 1 || columnIndex > currentBatch.getFieldVectors().size()) {
+            throw new SQLException("Column index " + columnIndex + " is out of range, the result has "
+                    + currentBatch.getFieldVectors().size() + " column(s)");
+        }
+
         FieldVector vector = currentBatch.getVector(columnIndex - 1);
         if (vector.isNull(rowIndex)) {
             lastWasNull = true;
             return null;
         }
         lastWasNull = false;
-        return toJdbcValue(vector.getObject(rowIndex));
+        try {
+            return toJdbcValue(vector.getField().getType(), vector.getObject(rowIndex));
+        } catch (RuntimeException e) {
+            throw new SQLException("Error obtaining the value of column " + columnIndex + " ("
+                    + vector.getField().getName() + ", " + vector.getField().getType() + "): " + e, e);
+        }
     }
 
-    /** Arrow returns its own Text for VARCHAR; JDBC clients expect a java.lang.String from getObject. */
-    private static Object toJdbcValue(Object value) {
+    /**
+     * Arrow's getObject returns Arrow's own types or raw numbers (Text for VARCHAR, an int of days for DATE,
+     * a long of micros for TIME and for timestamps with a time zone). JDBC clients expect String,
+     * java.sql.Date, java.sql.Time and java.sql.Timestamp.
+     */
+    private static Object toJdbcValue(ArrowType type, Object value) throws SQLException {
         if (value instanceof org.apache.arrow.vector.util.Text) {
             return value.toString();
+        }
+        if (type instanceof ArrowType.Timestamp) {
+            String unit = ((ArrowType.Timestamp) type).getUnit().name();
+            if (value instanceof Long) {
+                return Timestamp.from(ValueConverter.instant((Long) value, unit));
+            }
+            return ValueConverter.toTimestamp(value);
+        }
+        if (type instanceof ArrowType.Date) {
+            if (value instanceof Integer) {
+                return Date.valueOf(java.time.LocalDate.ofEpochDay((Integer) value));
+            }
+            if (value instanceof Long) {
+                return Date.valueOf(java.time.LocalDate.ofEpochDay(Math.floorDiv((Long) value, 86_400_000L)));
+            }
+            return ValueConverter.toDate(value);
+        }
+        if (type instanceof ArrowType.Time) {
+            String unit = ((ArrowType.Time) type).getUnit().name();
+            if (value instanceof Number) {
+                return Time.valueOf(ValueConverter.timeOfDay(((Number) value).longValue(), unit));
+            }
+            return ValueConverter.toTime(value);
         }
         return value;
     }
@@ -132,30 +180,82 @@ public class OpenCanardResultSet implements ResultSet {
 
     // --- Type Mapping Bridge ---
 
-    @Override public String getString(int i) throws SQLException { 
-        Object o = getObject(i); 
-        return o == null ? null : o.toString(); 
+    @Override public String getString(int i) throws SQLException { return ValueConverter.toString(getObject(i)); }
+    @Override public boolean getBoolean(int i) throws SQLException { return ValueConverter.toBoolean(getObject(i)); }
+    @Override public byte getByte(int i) throws SQLException { return ValueConverter.toByte(getObject(i)); }
+    @Override public short getShort(int i) throws SQLException { return ValueConverter.toShort(getObject(i)); }
+    @Override public int getInt(int i) throws SQLException { return ValueConverter.toInt(getObject(i)); }
+    @Override public long getLong(int i) throws SQLException { return ValueConverter.toLong(getObject(i)); }
+    @Override public float getFloat(int i) throws SQLException { return ValueConverter.toFloat(getObject(i)); }
+    @Override public double getDouble(int i) throws SQLException { return ValueConverter.toDouble(getObject(i)); }
+    @Override public BigDecimal getBigDecimal(int i) throws SQLException { return ValueConverter.toBigDecimal(getObject(i)); }
+    @Override public byte[] getBytes(int i) throws SQLException { return ValueConverter.toBytes(getObject(i)); }
+    @Override public Date getDate(int i) throws SQLException { return ValueConverter.toDate(getObject(i)); }
+    @Override public Time getTime(int i) throws SQLException { return ValueConverter.toTime(getObject(i)); }
+    @Override public Timestamp getTimestamp(int i) throws SQLException { return ValueConverter.toTimestamp(getObject(i)); }
+    @Override public java.io.Reader getCharacterStream(int i) throws SQLException {
+        String v = getString(i);
+        return v == null ? null : new java.io.StringReader(v);
     }
-    
-    @Override public int getInt(int i) throws SQLException {
-        Object o = getObject(i);
-        return o == null ? 0 : ((Number) o).intValue();
+    @Override public java.io.InputStream getBinaryStream(int i) throws SQLException {
+        byte[] v = getBytes(i);
+        return v == null ? null : new java.io.ByteArrayInputStream(v);
+    }
+    @Override public java.io.InputStream getAsciiStream(int i) throws SQLException {
+        String v = getString(i);
+        return v == null ? null : new java.io.ByteArrayInputStream(v.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+    }
+    @Override public java.io.InputStream getUnicodeStream(int i) throws SQLException {
+        String v = getString(i);
+        return v == null ? null : new java.io.ByteArrayInputStream(v.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+    @Override public BigDecimal getBigDecimal(int i, int scale) throws SQLException {
+        BigDecimal v = getBigDecimal(i);
+        return v == null ? null : v.setScale(scale, java.math.RoundingMode.HALF_UP);
+    }
+    @Override public String getNString(int i) throws SQLException { return getString(i); }
+    @Override public java.io.Reader getNCharacterStream(int i) throws SQLException { return getCharacterStream(i); }
+    @Override public Date getDate(int i, Calendar cal) throws SQLException { return getDate(i); }
+    @Override public Time getTime(int i, Calendar cal) throws SQLException { return getTime(i); }
+    @Override public Timestamp getTimestamp(int i, Calendar cal) throws SQLException { return getTimestamp(i); }
+    @Override public Object getObject(int i, Map<String, Class<?>> map) throws SQLException { return getObject(i); }
+    @Override public URL getURL(int i) throws SQLException {
+        String v = getString(i);
+        try {
+            return v == null ? null : new URL(v);
+        } catch (java.net.MalformedURLException e) {
+            throw new SQLException("Cannot convert '" + v + "' to a URL", e);
+        }
     }
 
-    @Override public long getLong(int i) throws SQLException {
+    @Override
+    @SuppressWarnings("unchecked")
+    public <T> T getObject(int i, Class<T> type) throws SQLException {
+        if (type == null) throw new SQLException("The target type is null");
         Object o = getObject(i);
-        return o == null ? 0L : ((Number) o).longValue();
-    }
-
-    @Override public double getDouble(int i) throws SQLException {
-        Object o = getObject(i);
-        return o == null ? 0.0 : ((Number) o).doubleValue();
-    }
-
-    @Override public boolean getBoolean(int i) throws SQLException {
-        Object o = getObject(i);
-        if (o instanceof Boolean) return (Boolean) o;
-        return o != null && Boolean.parseBoolean(o.toString());
+        if (o == null) return null;
+        Object r;
+        if (type == Object.class || type.isInstance(o) && type != Number.class) r = o;
+        else if (type == String.class) r = ValueConverter.toString(o);
+        else if (type == Integer.class) r = ValueConverter.toInt(o);
+        else if (type == Long.class) r = ValueConverter.toLong(o);
+        else if (type == Short.class) r = ValueConverter.toShort(o);
+        else if (type == Byte.class) r = ValueConverter.toByte(o);
+        else if (type == Double.class) r = ValueConverter.toDouble(o);
+        else if (type == Float.class) r = ValueConverter.toFloat(o);
+        else if (type == Boolean.class) r = ValueConverter.toBoolean(o);
+        else if (type == BigDecimal.class) r = ValueConverter.toBigDecimal(o);
+        else if (type == Number.class) r = o instanceof Number ? o : ValueConverter.toBigDecimal(o);
+        else if (type == byte[].class) r = ValueConverter.toBytes(o);
+        else if (type == Timestamp.class) r = ValueConverter.toTimestamp(o);
+        else if (type == Date.class) r = ValueConverter.toDate(o);
+        else if (type == Time.class) r = ValueConverter.toTime(o);
+        else if (type == java.time.LocalDateTime.class) r = ValueConverter.toTimestamp(o).toLocalDateTime();
+        else if (type == java.time.LocalDate.class) r = ValueConverter.toDate(o).toLocalDate();
+        else if (type == java.time.LocalTime.class) r = ValueConverter.toTime(o).toLocalTime();
+        else if (type == java.time.Instant.class) r = ValueConverter.toTimestamp(o).toInstant();
+        else throw new SQLException("Cannot convert a " + o.getClass().getName() + " to " + type.getName());
+        return (T) r;
     }
 
     // --- Metadata and Lifecycle ---
@@ -169,10 +269,12 @@ public class OpenCanardResultSet implements ResultSet {
     @Override
     public int findColumn(String columnLabel) throws SQLException {
         checkClosed();
-        return currentBatch.getSchema().getFields().stream()
-            .map(Field::getName)
-            .collect(java.util.stream.Collectors.toList())
-            .indexOf(columnLabel) + 1;
+        if (currentBatch == null) throw new SQLException("No result columns available");
+        List<Field> fields = currentBatch.getSchema().getFields();
+        for (int i = 0; i < fields.size(); i++) {
+            if (fields.get(i).getName().equalsIgnoreCase(columnLabel)) return i + 1;
+        }
+        throw new SQLException("Column '" + columnLabel + "' not found");
     }
 
     @Override
@@ -205,72 +307,6 @@ public class OpenCanardResultSet implements ResultSet {
     }
 
     @Override public boolean isWrapperFor(Class<?> iface) { return iface.isInstance(this); }
-
-	@Override
-	public byte getByte(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
-	}
-
-	@Override
-	public short getShort(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
-	}
-
-	@Override
-	public float getFloat(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
-	}
-
-	@Override
-	public BigDecimal getBigDecimal(int columnIndex, int scale) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public byte[] getBytes(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public Date getDate(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public Time getTime(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public Timestamp getTimestamp(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public InputStream getAsciiStream(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public InputStream getUnicodeStream(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public InputStream getBinaryStream(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
 
 	@Override
 	public String getString(String columnLabel) throws SQLException {
@@ -314,7 +350,7 @@ public class OpenCanardResultSet implements ResultSet {
 
 	@Override
 	public BigDecimal getBigDecimal(String columnLabel, int scale) throws SQLException {
-		return null;
+		return getBigDecimal(findColumn(columnLabel), scale);
 	}
 
 	@Override
@@ -371,43 +407,28 @@ public class OpenCanardResultSet implements ResultSet {
 	}
 
 	@Override
-	public Reader getCharacterStream(int columnIndex) throws SQLException {
-		return null;
-	}
-
-	@Override
 	public Reader getCharacterStream(String columnLabel) throws SQLException {
 		return getCharacterStream(findColumn(columnLabel));
 	}
 
 	@Override
-	public BigDecimal getBigDecimal(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
 	public BigDecimal getBigDecimal(String columnLabel) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return getBigDecimal(findColumn(columnLabel));
 	}
 
 	@Override
 	public boolean isBeforeFirst() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return rowNumber == 0 && !afterLast;
 	}
 
 	@Override
 	public boolean isAfterLast() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return afterLast;
 	}
 
 	@Override
 	public boolean isFirst() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return rowNumber == 1 && !afterLast;
 	}
 
 	@Override
@@ -442,8 +463,7 @@ public class OpenCanardResultSet implements ResultSet {
 
 	@Override
 	public int getRow() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
+		return afterLast ? 0 : rowNumber;
 	}
 
 	@Override
@@ -771,12 +791,6 @@ public class OpenCanardResultSet implements ResultSet {
 	}
 
 	@Override
-	public Object getObject(int columnIndex, Map<String, Class<?>> map) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
 	public Ref getRef(int columnIndex) throws SQLException {
 		// TODO Auto-generated method stub
 		return null;
@@ -802,8 +816,7 @@ public class OpenCanardResultSet implements ResultSet {
 
 	@Override
 	public Object getObject(String columnLabel, Map<String, Class<?>> map) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return getObject(findColumn(columnLabel));
 	}
 
 	@Override
@@ -831,51 +844,23 @@ public class OpenCanardResultSet implements ResultSet {
 	}
 
 	@Override
-	public Date getDate(int columnIndex, Calendar cal) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
 	public Date getDate(String columnLabel, Calendar cal) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public Time getTime(int columnIndex, Calendar cal) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return getDate(findColumn(columnLabel));
 	}
 
 	@Override
 	public Time getTime(String columnLabel, Calendar cal) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public Timestamp getTimestamp(int columnIndex, Calendar cal) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return getTime(findColumn(columnLabel));
 	}
 
 	@Override
 	public Timestamp getTimestamp(String columnLabel, Calendar cal) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public URL getURL(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return getTimestamp(findColumn(columnLabel));
 	}
 
 	@Override
 	public URL getURL(String columnLabel) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return getURL(findColumn(columnLabel));
 	}
 
 	@Override
@@ -1017,27 +1002,13 @@ public class OpenCanardResultSet implements ResultSet {
 	}
 
 	@Override
-	public String getNString(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
 	public String getNString(String columnLabel) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
-	public Reader getNCharacterStream(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return getString(findColumn(columnLabel));
 	}
 
 	@Override
 	public Reader getNCharacterStream(String columnLabel) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return getCharacterStream(findColumn(columnLabel));
 	}
 
 	@Override
@@ -1209,14 +1180,7 @@ public class OpenCanardResultSet implements ResultSet {
 	}
 
 	@Override
-	public <T> T getObject(int columnIndex, Class<T> type) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
-	}
-
-	@Override
 	public <T> T getObject(String columnLabel, Class<T> type) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return getObject(findColumn(columnLabel), type);
 	}
 }
