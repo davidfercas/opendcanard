@@ -769,9 +769,9 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public ResultSet getCatalogs() throws SQLException {
-		//There are no catalogs in DuckDB so we just retrieve an empty query
+		// DuckDB catalogs are the attached databases (the query was wrapped in stray quotes before, so it never ran)
 	    return this.conn.createStatement()
-	            .executeQuery("\"SELECT schema_name AS TABLE_CAT, NULL AS TABLE_CATALOG FROM information_schema.schemata\"");
+	            .executeQuery("SELECT DISTINCT catalog_name AS TABLE_CAT FROM information_schema.schemata");
 	}
 
 	@Override

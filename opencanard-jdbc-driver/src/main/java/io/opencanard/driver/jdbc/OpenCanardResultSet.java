@@ -102,7 +102,15 @@ public class OpenCanardResultSet implements ResultSet {
             return null;
         }
         lastWasNull = false;
-        return vector.getObject(rowIndex);
+        return toJdbcValue(vector.getObject(rowIndex));
+    }
+
+    /** Arrow returns its own Text for VARCHAR; JDBC clients expect a java.lang.String from getObject. */
+    private static Object toJdbcValue(Object value) {
+        if (value instanceof org.apache.arrow.vector.util.Text) {
+            return value.toString();
+        }
+        return value;
     }
 
     @Override
