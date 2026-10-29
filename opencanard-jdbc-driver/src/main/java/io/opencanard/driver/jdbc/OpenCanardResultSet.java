@@ -46,6 +46,15 @@ public class OpenCanardResultSet implements ResultSet {
             // we set rowIndex to -1 so that the FIRST call to next() 
             // correctly points to index 0.
             this.rowIndex = -1; 
+        } else if (currentStream != null) {
+            // No batch at all (empty result): the stream root still carries the schema,
+            // so getMetaData() works and next() simply returns false.
+            try {
+                this.currentBatch = currentStream.getRoot();
+            } catch (RuntimeException e) {
+                DriverDiagnostics.debugError("Empty result without schema", e);
+            }
+            DriverDiagnostics.debug("Empty result set");
         }
         
     }

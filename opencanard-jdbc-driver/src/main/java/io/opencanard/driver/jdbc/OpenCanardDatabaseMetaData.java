@@ -731,8 +731,7 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 	@Override
 	public ResultSet getProcedures(String catalog, String schemaPattern, String procedureNamePattern)
 			throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return query("SELECT CAST(NULL AS VARCHAR) AS PROCEDURE_CAT, CAST(NULL AS VARCHAR) AS PROCEDURE_SCHEM, CAST(NULL AS VARCHAR) AS PROCEDURE_NAME, CAST(NULL AS VARCHAR) AS RESERVED1, CAST(NULL AS VARCHAR) AS RESERVED2, CAST(NULL AS VARCHAR) AS RESERVED3, CAST(NULL AS VARCHAR) AS REMARKS, CAST(NULL AS SMALLINT) AS PROCEDURE_TYPE, CAST(NULL AS VARCHAR) AS SPECIFIC_NAME WHERE false");
 	}
 
 	@Override
@@ -745,73 +744,77 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 	@Override
 	public ResultSet getTables(String catalog, String schemaPattern, String tableNamePattern, String[] types)
 			throws SQLException {
-		
-		String sql = """
-				SELECT NULL AS TABLE_CAT,
-				    table_schema AS TABLE_SCHEM,
-				    table_name AS TABLE_NAME,
-				    'TABLE' AS TABLE_TYPE,
-				    NULL AS REMARKS
-				FROM information_schema.tables
-				WHERE table_type='BASE TABLE'
-				ORDER BY table_schema, table_name
-				""";
-
-	        Statement stmt = this.conn.createStatement();
-	        return stmt.executeQuery(sql);
+		StringBuilder sql = new StringBuilder(
+				"SELECT * FROM (SELECT table_catalog AS TABLE_CAT, table_schema AS TABLE_SCHEM, table_name AS TABLE_NAME, "
+						+ "CASE WHEN table_type = 'BASE TABLE' THEN 'TABLE' WHEN table_type = 'VIEW' THEN 'VIEW' ELSE table_type END AS TABLE_TYPE, "
+						+ "CAST(NULL AS VARCHAR) AS REMARKS, CAST(NULL AS VARCHAR) AS TYPE_CAT, CAST(NULL AS VARCHAR) AS TYPE_SCHEM, "
+						+ "CAST(NULL AS VARCHAR) AS TYPE_NAME, CAST(NULL AS VARCHAR) AS SELF_REFERENCING_COL_NAME, "
+						+ "CAST(NULL AS VARCHAR) AS REF_GENERATION "
+						+ "FROM information_schema.tables WHERE table_catalog NOT IN ('system', 'temp')) t WHERE 1 = 1");
+		equalsFilter(sql, "TABLE_CAT", catalog);
+		likeFilter(sql, "TABLE_SCHEM", schemaPattern);
+		likeFilter(sql, "TABLE_NAME", tableNamePattern);
+		if (types != null && types.length > 0) {
+			sql.append(" AND TABLE_TYPE IN (");
+			for (int i = 0; i < types.length; i++) {
+				sql.append(i > 0 ? ", " : "").append(literal(types[i]));
+			}
+			sql.append(")");
+		}
+		sql.append(" ORDER BY TABLE_TYPE, TABLE_CAT, TABLE_SCHEM, TABLE_NAME");
+		return query(sql.toString());
 	}
 
 	@Override
 	public ResultSet getSchemas() throws SQLException {
-		return this.conn.createStatement().executeQuery(
-				"SELECT schema_name AS TABLE_SCHEM, NULL AS TABLE_CATALOG FROM information_schema.schemata");
+		return getSchemas(null, null);
 	}
 
 	@Override
 	public ResultSet getCatalogs() throws SQLException {
-		// DuckDB catalogs are the attached databases (the query was wrapped in stray quotes before, so it never ran)
-	    return this.conn.createStatement()
-	            .executeQuery("SELECT DISTINCT catalog_name AS TABLE_CAT FROM information_schema.schemata");
+		// DuckDB catalogs are the attached databases
+		return query("SELECT DISTINCT catalog_name AS TABLE_CAT FROM information_schema.schemata "
+				+ "WHERE catalog_name NOT IN ('system', 'temp') ORDER BY TABLE_CAT");
 	}
 
 	@Override
 	public ResultSet getTableTypes() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return query("SELECT 'TABLE' AS TABLE_TYPE UNION ALL SELECT 'VIEW'");
 	}
 
 	@Override
 	public ResultSet getColumns(String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)
 			throws SQLException {
-
-	    String sql = """
-	            SELECT
-	                NULL AS TABLE_CAT,
-	                table_schema AS TABLE_SCHEM,
-	                table_name AS TABLE_NAME,
-	                column_name AS COLUMN_NAME,
-	                data_type AS TYPE_NAME,
-	                ordinal_position AS ORDINAL_POSITION
-	            FROM information_schema.columns
-	            ORDER BY ordinal_position
-	            """;
-
-	        Statement stmt = this.conn.createStatement();
-	        return stmt.executeQuery(sql);
+		StringBuilder sql = new StringBuilder("SELECT * FROM (SELECT table_catalog AS TABLE_CAT, table_schema AS TABLE_SCHEM, "
+				+ "table_name AS TABLE_NAME, column_name AS COLUMN_NAME, CAST(CASE WHEN upper(data_type) LIKE 'DECIMAL%' THEN 3 WHEN upper(data_type) LIKE 'TIMESTAMP%WITH TIME ZONE%' THEN 2014 WHEN upper(data_type) LIKE 'TIMESTAMP%' THEN 93 WHEN upper(data_type) LIKE 'TIME%' THEN 92 WHEN upper(data_type) = 'VARCHAR' THEN 12 WHEN upper(data_type) = 'INTEGER' THEN 4 WHEN upper(data_type) = 'BIGINT' THEN -5 WHEN upper(data_type) = 'SMALLINT' THEN 5 WHEN upper(data_type) = 'TINYINT' THEN -6 WHEN upper(data_type) = 'BOOLEAN' THEN 16 WHEN upper(data_type) = 'DOUBLE' THEN 8 WHEN upper(data_type) IN ('FLOAT', 'REAL') THEN 7 WHEN upper(data_type) = 'DATE' THEN 91 WHEN upper(data_type) = 'BLOB' THEN -2 WHEN upper(data_type) IN ('HUGEINT', 'UBIGINT', 'UHUGEINT') THEN 2 WHEN upper(data_type) IN ('UINTEGER') THEN -5 WHEN upper(data_type) IN ('USMALLINT', 'UTINYINT') THEN 4 ELSE 1111 END AS INTEGER) AS DATA_TYPE, "
+				+ "data_type AS TYPE_NAME, CAST(coalesce(character_maximum_length, numeric_precision, datetime_precision) AS INTEGER) AS COLUMN_SIZE, "
+				+ "CAST(NULL AS INTEGER) AS BUFFER_LENGTH, CAST(numeric_scale AS INTEGER) AS DECIMAL_DIGITS, "
+				+ "CAST(numeric_precision_radix AS INTEGER) AS NUM_PREC_RADIX, "
+				+ "CAST(CASE WHEN is_nullable = 'YES' THEN 1 ELSE 0 END AS INTEGER) AS NULLABLE, "
+				+ "CAST(NULL AS VARCHAR) AS REMARKS, column_default AS COLUMN_DEF, CAST(NULL AS INTEGER) AS SQL_DATA_TYPE, "
+				+ "CAST(NULL AS INTEGER) AS SQL_DATETIME_SUB, CAST(character_maximum_length AS INTEGER) AS CHAR_OCTET_LENGTH, "
+				+ "CAST(ordinal_position AS INTEGER) AS ORDINAL_POSITION, is_nullable AS IS_NULLABLE, "
+				+ "CAST(NULL AS VARCHAR) AS SCOPE_CATALOG, CAST(NULL AS VARCHAR) AS SCOPE_SCHEMA, CAST(NULL AS VARCHAR) AS SCOPE_TABLE, "
+				+ "CAST(NULL AS SMALLINT) AS SOURCE_DATA_TYPE, 'NO' AS IS_AUTOINCREMENT, 'NO' AS IS_GENERATEDCOLUMN "
+				+ "FROM information_schema.columns WHERE table_catalog NOT IN ('system', 'temp')) t WHERE 1 = 1");
+		equalsFilter(sql, "TABLE_CAT", catalog);
+		likeFilter(sql, "TABLE_SCHEM", schemaPattern);
+		likeFilter(sql, "TABLE_NAME", tableNamePattern);
+		likeFilter(sql, "COLUMN_NAME", columnNamePattern);
+		sql.append(" ORDER BY TABLE_CAT, TABLE_SCHEM, TABLE_NAME, ORDINAL_POSITION");
+		return query(sql.toString());
 	}
 
 	@Override
 	public ResultSet getColumnPrivileges(String catalog, String schema, String table, String columnNamePattern)
 			throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return query("SELECT CAST(NULL AS VARCHAR) AS TABLE_CAT, CAST(NULL AS VARCHAR) AS TABLE_SCHEM, CAST(NULL AS VARCHAR) AS TABLE_NAME, CAST(NULL AS VARCHAR) AS COLUMN_NAME, CAST(NULL AS VARCHAR) AS GRANTOR, CAST(NULL AS VARCHAR) AS GRANTEE, CAST(NULL AS VARCHAR) AS PRIVILEGE, CAST(NULL AS VARCHAR) AS IS_GRANTABLE WHERE false");
 	}
 
 	@Override
 	public ResultSet getTablePrivileges(String catalog, String schemaPattern, String tableNamePattern)
 			throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return query("SELECT CAST(NULL AS VARCHAR) AS TABLE_CAT, CAST(NULL AS VARCHAR) AS TABLE_SCHEM, CAST(NULL AS VARCHAR) AS TABLE_NAME, CAST(NULL AS VARCHAR) AS GRANTOR, CAST(NULL AS VARCHAR) AS GRANTEE, CAST(NULL AS VARCHAR) AS PRIVILEGE, CAST(NULL AS VARCHAR) AS IS_GRANTABLE WHERE false");
 	}
 
 	@Override
@@ -829,40 +832,34 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public ResultSet getPrimaryKeys(String catalog, String schema, String table) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return query("SELECT CAST(NULL AS VARCHAR) AS TABLE_CAT, CAST(NULL AS VARCHAR) AS TABLE_SCHEM, CAST(NULL AS VARCHAR) AS TABLE_NAME, CAST(NULL AS VARCHAR) AS COLUMN_NAME, CAST(NULL AS SMALLINT) AS KEY_SEQ, CAST(NULL AS VARCHAR) AS PK_NAME WHERE false");
 	}
 
 	@Override
 	public ResultSet getImportedKeys(String catalog, String schema, String table) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return query("SELECT CAST(NULL AS VARCHAR) AS PKTABLE_CAT, CAST(NULL AS VARCHAR) AS PKTABLE_SCHEM, CAST(NULL AS VARCHAR) AS PKTABLE_NAME, CAST(NULL AS VARCHAR) AS PKCOLUMN_NAME, CAST(NULL AS VARCHAR) AS FKTABLE_CAT, CAST(NULL AS VARCHAR) AS FKTABLE_SCHEM, CAST(NULL AS VARCHAR) AS FKTABLE_NAME, CAST(NULL AS VARCHAR) AS FKCOLUMN_NAME, CAST(NULL AS SMALLINT) AS KEY_SEQ, CAST(NULL AS SMALLINT) AS UPDATE_RULE, CAST(NULL AS SMALLINT) AS DELETE_RULE, CAST(NULL AS VARCHAR) AS FK_NAME, CAST(NULL AS VARCHAR) AS PK_NAME, CAST(NULL AS SMALLINT) AS DEFERRABILITY WHERE false");
 	}
 
 	@Override
 	public ResultSet getExportedKeys(String catalog, String schema, String table) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return query("SELECT CAST(NULL AS VARCHAR) AS PKTABLE_CAT, CAST(NULL AS VARCHAR) AS PKTABLE_SCHEM, CAST(NULL AS VARCHAR) AS PKTABLE_NAME, CAST(NULL AS VARCHAR) AS PKCOLUMN_NAME, CAST(NULL AS VARCHAR) AS FKTABLE_CAT, CAST(NULL AS VARCHAR) AS FKTABLE_SCHEM, CAST(NULL AS VARCHAR) AS FKTABLE_NAME, CAST(NULL AS VARCHAR) AS FKCOLUMN_NAME, CAST(NULL AS SMALLINT) AS KEY_SEQ, CAST(NULL AS SMALLINT) AS UPDATE_RULE, CAST(NULL AS SMALLINT) AS DELETE_RULE, CAST(NULL AS VARCHAR) AS FK_NAME, CAST(NULL AS VARCHAR) AS PK_NAME, CAST(NULL AS SMALLINT) AS DEFERRABILITY WHERE false");
 	}
 
 	@Override
 	public ResultSet getCrossReference(String parentCatalog, String parentSchema, String parentTable,
 			String foreignCatalog, String foreignSchema, String foreignTable) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return query("SELECT CAST(NULL AS VARCHAR) AS PKTABLE_CAT, CAST(NULL AS VARCHAR) AS PKTABLE_SCHEM, CAST(NULL AS VARCHAR) AS PKTABLE_NAME, CAST(NULL AS VARCHAR) AS PKCOLUMN_NAME, CAST(NULL AS VARCHAR) AS FKTABLE_CAT, CAST(NULL AS VARCHAR) AS FKTABLE_SCHEM, CAST(NULL AS VARCHAR) AS FKTABLE_NAME, CAST(NULL AS VARCHAR) AS FKCOLUMN_NAME, CAST(NULL AS SMALLINT) AS KEY_SEQ, CAST(NULL AS SMALLINT) AS UPDATE_RULE, CAST(NULL AS SMALLINT) AS DELETE_RULE, CAST(NULL AS VARCHAR) AS FK_NAME, CAST(NULL AS VARCHAR) AS PK_NAME, CAST(NULL AS SMALLINT) AS DEFERRABILITY WHERE false");
 	}
 
 	@Override
 	public ResultSet getTypeInfo() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return query("SELECT CAST(NULL AS VARCHAR) AS TYPE_NAME, CAST(NULL AS INTEGER) AS DATA_TYPE, CAST(NULL AS INTEGER) AS PRECISION, CAST(NULL AS VARCHAR) AS LITERAL_PREFIX, CAST(NULL AS VARCHAR) AS LITERAL_SUFFIX, CAST(NULL AS VARCHAR) AS CREATE_PARAMS, CAST(NULL AS SMALLINT) AS NULLABLE, CAST(NULL AS SMALLINT) AS CASE_SENSITIVE, CAST(NULL AS SMALLINT) AS SEARCHABLE, CAST(NULL AS SMALLINT) AS UNSIGNED_ATTRIBUTE, CAST(NULL AS SMALLINT) AS FIXED_PREC_SCALE, CAST(NULL AS SMALLINT) AS AUTO_INCREMENT, CAST(NULL AS VARCHAR) AS LOCAL_TYPE_NAME, CAST(NULL AS SMALLINT) AS MINIMUM_SCALE, CAST(NULL AS SMALLINT) AS MAXIMUM_SCALE, CAST(NULL AS INTEGER) AS SQL_DATA_TYPE, CAST(NULL AS INTEGER) AS SQL_DATETIME_SUB, CAST(NULL AS INTEGER) AS NUM_PREC_RADIX WHERE false");
 	}
 
 	@Override
 	public ResultSet getIndexInfo(String catalog, String schema, String table, boolean unique, boolean approximate)
 			throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return query("SELECT CAST(NULL AS VARCHAR) AS TABLE_CAT, CAST(NULL AS VARCHAR) AS TABLE_SCHEM, CAST(NULL AS VARCHAR) AS TABLE_NAME, CAST(NULL AS SMALLINT) AS NON_UNIQUE, CAST(NULL AS VARCHAR) AS INDEX_QUALIFIER, CAST(NULL AS VARCHAR) AS INDEX_NAME, CAST(NULL AS SMALLINT) AS TYPE, CAST(NULL AS SMALLINT) AS ORDINAL_POSITION, CAST(NULL AS VARCHAR) AS COLUMN_NAME, CAST(NULL AS VARCHAR) AS ASC_OR_DESC, CAST(NULL AS INTEGER) AS CARDINALITY, CAST(NULL AS INTEGER) AS PAGES, CAST(NULL AS VARCHAR) AS FILTER_CONDITION WHERE false");
 	}
 
 	@Override
@@ -1055,8 +1052,11 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public ResultSet getSchemas(String catalog, String schemaPattern) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		StringBuilder sql = new StringBuilder("SELECT * FROM (SELECT schema_name AS TABLE_SCHEM, catalog_name AS TABLE_CATALOG FROM information_schema.schemata WHERE catalog_name NOT IN ('system', 'temp')) t WHERE 1 = 1");
+		equalsFilter(sql, "TABLE_CATALOG", catalog);
+		likeFilter(sql, "TABLE_SCHEM", schemaPattern);
+		sql.append(" ORDER BY TABLE_CATALOG, TABLE_SCHEM");
+		return query(sql.toString());
 	}
 
 	@Override
@@ -1080,8 +1080,7 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 	@Override
 	public ResultSet getFunctions(String catalog, String schemaPattern, String functionNamePattern)
 			throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return query("SELECT CAST(NULL AS VARCHAR) AS FUNCTION_CAT, CAST(NULL AS VARCHAR) AS FUNCTION_SCHEM, CAST(NULL AS VARCHAR) AS FUNCTION_NAME, CAST(NULL AS VARCHAR) AS REMARKS, CAST(NULL AS SMALLINT) AS FUNCTION_TYPE, CAST(NULL AS VARCHAR) AS SPECIFIC_NAME WHERE false");
 	}
 
 	@Override
@@ -1105,4 +1104,29 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 	}
 
     // Stub the rest
+
+	// ---- helpers for the metadata queries ----
+
+	private ResultSet query(String sql) throws SQLException {
+		return this.conn.createStatement().executeQuery(sql);
+	}
+
+	/** SQL string literal: quotes are doubled. */
+	private static String literal(String value) {
+		return "'" + value.replace("'", "''") + "'";
+	}
+
+	/** Adds "AND column = 'value'" unless value is null or empty. */
+	private static void equalsFilter(StringBuilder sql, String column, String value) {
+		if (value != null && !value.isEmpty()) {
+			sql.append(" AND ").append(column).append(" = ").append(literal(value));
+		}
+	}
+
+	/** Adds "AND column LIKE 'pattern'" (JDBC pattern: % and _, backslash escapes) unless null or "%". */
+	private static void likeFilter(StringBuilder sql, String column, String pattern) {
+		if (pattern != null && !pattern.equals("%")) {
+			sql.append(" AND ").append(column).append(" LIKE ").append(literal(pattern)).append(" ESCAPE '\\'");
+		}
+	}
 }
