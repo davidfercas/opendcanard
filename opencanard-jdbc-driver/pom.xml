@@ -13,11 +13,6 @@
 	<name>OpenCanard JDBC Driver</name>
 	<description>Minimal JDBC driver for OpenCanard Flight server (SELECT only)</description>
 	<dependencies>
-		<dependency>
-			<groupId>org.openjdk.jol</groupId>
-			<artifactId>jol-core</artifactId>
-			<version>0.17</version>
-		</dependency>
 		<!-- Apache Arrow Flight (CLASSIC) -->
 		<!-- Flight core implementation -->
 		<dependency>
@@ -39,38 +34,10 @@
 			<artifactId>arrow-memory-netty</artifactId>
 		</dependency>
 		<!-- (Optional) Flight SQL helpers -->
-		<dependency>
-			<groupId>org.apache.arrow</groupId>
-			<artifactId>flight-sql</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.arrow</groupId>
-			<artifactId>arrow-jdbc</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.arrow</groupId>
-			<artifactId>flight-sql-jdbc-driver</artifactId>
-		</dependency>
 		<!-- Log4j2 API and Core -->
 		<dependency>
 			<groupId>org.apache.logging.log4j</groupId>
 			<artifactId>log4j-api</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.logging.log4j</groupId>
-			<artifactId>log4j-core</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.logging.log4j</groupId>
-			<artifactId>log4j-slf4j-impl</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.springframework.security</groupId>
-			<artifactId>spring-security-crypto</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>commons-logging</groupId>
-			<artifactId>commons-logging</artifactId>
 		</dependency>		
 	</dependencies>
 	<build>
@@ -115,6 +82,22 @@
 							<finalName>${project.artifactId}-${project.version}-all</finalName>
 							<!-- don't generate dependency-reduced-pom -->
 							<createDependencyReducedPom>false</createDependencyReducedPom>
+							<!-- Relocate the libraries that clash when the jar runs inside another application
+							     (e.g. Denodo): the host's Netty / gRPC / Guava / Protobuf must not mix with ours.
+							     Netty epoll/kqueue natives are not bundled, so Netty uses NIO. -->
+							<relocations>
+								<relocation><pattern>io.netty</pattern><shadedPattern>io.opencanard.shaded.io.netty</shadedPattern></relocation>
+								<relocation><pattern>io.grpc</pattern><shadedPattern>io.opencanard.shaded.io.grpc</shadedPattern></relocation>
+								<relocation><pattern>com.google.protobuf</pattern><shadedPattern>io.opencanard.shaded.com.google.protobuf</shadedPattern></relocation>
+								<relocation><pattern>com.google.common</pattern><shadedPattern>io.opencanard.shaded.com.google.common</shadedPattern></relocation>
+								<relocation><pattern>com.google.thirdparty</pattern><shadedPattern>io.opencanard.shaded.com.google.thirdparty</shadedPattern></relocation>
+							</relocations>
+							<artifactSet>
+								<excludes>
+									<exclude>io.netty:netty-transport-native-epoll</exclude>
+									<exclude>io.netty:netty-transport-native-kqueue</exclude>
+								</excludes>
+							</artifactSet>
 							<!-- required for JDBC ServiceLoader -->
 							<transformers>
 								<transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
