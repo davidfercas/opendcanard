@@ -5,9 +5,17 @@ import java.sql.*;
 public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
     private final Connection conn;
+    private final String url;
+    private final String userName;
 
     public OpenCanardDatabaseMetaData(Connection conn) {
+        this(conn, null, null);
+    }
+
+    public OpenCanardDatabaseMetaData(Connection conn, String url, String userName) {
         this.conn = conn;
+        this.url = url;
+        this.userName = userName;
     }
 
     @Override
@@ -46,14 +54,12 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public String getURL() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return url;
 	}
 
 	@Override
 	public String getUserName() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return userName;
 	}
 
 	@Override
@@ -82,20 +88,17 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean nullsAreSortedAtEnd() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
 	public String getDriverName() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return "OpenCanard JDBC Driver";
 	}
 
 	@Override
 	public String getDriverVersion() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return "0.1";
 	}
 
 	@Override
@@ -142,14 +145,12 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean storesMixedCaseIdentifiers() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
 	public boolean supportsMixedCaseQuotedIdentifiers() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -166,62 +167,52 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean storesMixedCaseQuotedIdentifiers() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
 	public String getIdentifierQuoteString() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return "\"";
 	}
 
 	@Override
 	public String getSQLKeywords() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return "";
 	}
 
 	@Override
 	public String getNumericFunctions() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return "";
 	}
 
 	@Override
 	public String getStringFunctions() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return "";
 	}
 
 	@Override
 	public String getSystemFunctions() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return "";
 	}
 
 	@Override
 	public String getTimeDateFunctions() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return "";
 	}
 
 	@Override
 	public String getSearchStringEscape() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return "\\";
 	}
 
 	@Override
 	public String getExtraNameCharacters() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return "";
 	}
 
 	@Override
 	public boolean supportsAlterTableWithAddColumn() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -232,8 +223,7 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsColumnAliasing() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -256,8 +246,7 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsTableCorrelationNames() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -280,8 +269,7 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsGroupBy() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -298,8 +286,7 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsLikeEscapeClause() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -340,8 +327,7 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsANSI92EntryLevelSQL() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -364,8 +350,7 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsOuterJoins() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -382,20 +367,17 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public String getSchemaTerm() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return "schema";
 	}
 
 	@Override
 	public String getProcedureTerm() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return "procedure";
 	}
 
 	@Override
 	public String getCatalogTerm() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return "catalog";
 	}
 
 	@Override
@@ -406,14 +388,12 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public String getCatalogSeparator() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return ".";
 	}
 
 	@Override
 	public boolean supportsSchemasInDataManipulation() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -424,8 +404,7 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsSchemasInTableDefinitions() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -442,8 +421,7 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsCatalogsInDataManipulation() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -496,26 +474,22 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsSubqueriesInComparisons() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
 	public boolean supportsSubqueriesInExists() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
 	public boolean supportsSubqueriesInIns() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
 	public boolean supportsSubqueriesInQuantifieds() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -526,14 +500,12 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsUnion() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
 	public boolean supportsUnionAll() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -943,8 +915,7 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public Connection getConnection() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return conn;
 	}
 
 	@Override
@@ -998,8 +969,7 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public int getResultSetHoldability() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
+		return ResultSet.CLOSE_CURSORS_AT_COMMIT;
 	}
 
 	@Override
@@ -1016,20 +986,17 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public int getJDBCMajorVersion() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
+		return 4;
 	}
 
 	@Override
 	public int getJDBCMinorVersion() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
+		return 2;
 	}
 
 	@Override
 	public int getSQLStateType() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
+		return DatabaseMetaData.sqlStateSQL;
 	}
 
 	@Override
@@ -1046,8 +1013,7 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public RowIdLifetime getRowIdLifetime() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return RowIdLifetime.ROWID_UNSUPPORTED;
 	}
 
 	@Override

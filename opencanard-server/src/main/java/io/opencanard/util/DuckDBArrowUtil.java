@@ -26,6 +26,57 @@ public final class DuckDBArrowUtil {
 	private DuckDBArrowUtil() {
 	}
 
+	/**
+	 * What running a statement produced: either a schema (the statement returns rows) or an update count
+	 * (DDL / DML such as CREATE TABLE, INSERT, UPDATE, DELETE, which return no result set).
+	 */
+	public static final class Outcome {
+		private final org.apache.arrow.vector.types.pojo.Schema schema;
+		private final long updateCount;
+
+		private Outcome(org.apache.arrow.vector.types.pojo.Schema schema, long updateCount) {
+			this.schema = schema;
+			this.updateCount = updateCount;
+		}
+
+		public boolean returnsRows() {
+			return schema != null;
+		}
+
+		/** The schema of the rows, or null if the statement returns none. */
+		public org.apache.arrow.vector.types.pojo.Schema getSchema() {
+			return schema;
+		}
+
+		/** Rows changed by a statement that returns no rows (0 for DDL). */
+		public long getUpdateCount() {
+			return updateCount;
+		}
+	}
+
+	/**
+	 * Runs the statement ONCE with {@code execute}, which accepts any kind of SQL. {@code executeQuery}
+	 * fails for statements without a result set ("executeQuery() can only be used with queries that
+	 * return a ResultSet"). A statement that returns no rows has done its work when this returns; one that
+	 * returns rows is run again by {@link #streamQuery} to stream them.
+	 */
+	public static Outcome run(Connection conn, String sql) throws Exception {
+		try (Statement stmt = conn.createStatement()) {
+			if (stmt.execute(sql)) {
+				try (ResultSet rs = stmt.getResultSet()) {
+					JdbcToArrowConfig config = new JdbcToArrowConfigBuilder().setAllocator(new RootAllocator())
+							.setTargetBatchSize(1024).build();
+					return new Outcome(JdbcToArrowUtils.jdbcToArrowSchema(rs.getMetaData(), config), -1);
+				}
+			}
+			int count = stmt.getUpdateCount();
+			return new Outcome(null, Math.max(count, 0));
+		} catch (Exception e) {
+			logger.error("Error running {}", sql, e);
+			throw e;
+		}
+	}
+
 	// Get Arrow schema
 	public static org.apache.arrow.vector.types.pojo.Schema getSchema(Connection conn, String sql) throws Exception {
 

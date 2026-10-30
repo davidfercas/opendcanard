@@ -436,10 +436,17 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		String sql = new String(descriptor.getCommand(), StandardCharsets.UTF_8);
 
 		try (Connection conn = connectionFor(context)) {
-			Schema schema = DuckDBArrowUtil.getSchema(conn, sql);
+			DuckDBArrowUtil.Outcome outcome = DuckDBArrowUtil.run(conn, sql);
+			if (!outcome.returnsRows()) {
+				// CREATE / INSERT / UPDATE / DELETE...: already executed, nothing to stream. No endpoints and
+				// the number of affected rows in "records" tell the client it is an update.
+				logger.debug("Statement executed without a result set, {} row(s) affected", outcome.getUpdateCount());
+				return new FlightInfo(new Schema(Collections.emptyList()), descriptor, Collections.emptyList(), -1,
+						outcome.getUpdateCount());
+			}
 			Ticket ticket = new Ticket(descriptor.getCommand());
 
-			return new FlightInfo(schema, descriptor,
+			return new FlightInfo(outcome.getSchema(), descriptor,
 					Collections.singletonList(new FlightEndpoint(ticket, server.getLocation())), -1, -1);
 		} catch (Exception e) {
 			logger.error(e);

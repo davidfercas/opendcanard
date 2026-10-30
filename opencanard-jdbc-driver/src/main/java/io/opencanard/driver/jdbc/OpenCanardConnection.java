@@ -34,6 +34,7 @@ public class OpenCanardConnection implements Connection {
 	private final String token;
 	private final String user;
 	private final String password;
+	private final String url;
 
 	// JDBC State
 	private boolean readOnly = false;
@@ -48,6 +49,7 @@ public class OpenCanardConnection implements Connection {
 		DriverDiagnostics.configure(url, props);
 		DriverDiagnostics.logEnvironmentOnce();
 
+		this.url = url;
 		this.token = props.getProperty("token");
 		this.user = props.getProperty("user");
 		this.password = props.getProperty("password");
@@ -141,7 +143,7 @@ public class OpenCanardConnection implements Connection {
 	@Override
 	public DatabaseMetaData getMetaData() throws SQLException {
 		checkClosed();
-		return new OpenCanardDatabaseMetaData(this);
+		return new OpenCanardDatabaseMetaData(this, this.url, this.user);
 	}
 
 	@Override
@@ -192,8 +194,7 @@ public class OpenCanardConnection implements Connection {
 
 	@Override
 	public String nativeSQL(String sql) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return sql;
 	}
 
 	@Override
@@ -221,14 +222,12 @@ public class OpenCanardConnection implements Connection {
 
 	@Override
 	public CallableStatement prepareCall(String sql, int resultSetType, int resultSetConcurrency) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw unsupported("prepareCall");
 	}
 
 	@Override
 	public Map<String, Class<?>> getTypeMap() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return new java.util.HashMap<>();
 	}
 
 	@Override
@@ -245,31 +244,28 @@ public class OpenCanardConnection implements Connection {
 
 	@Override
 	public int getHoldability() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
+		return ResultSet.CLOSE_CURSORS_AT_COMMIT;
 	}
 
 	@Override
 	public Savepoint setSavepoint() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw unsupported("setSavepoint");
 	}
 
 	@Override
 	public Savepoint setSavepoint(String name) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw unsupported("setSavepoint");
 	}
 
 	@Override
 	public void rollback(Savepoint savepoint) throws SQLException {
-		// TODO Auto-generated method stub
+		throw unsupported("savepoints");
 
 	}
 
 	@Override
 	public void releaseSavepoint(Savepoint savepoint) throws SQLException {
-		// TODO Auto-generated method stub
+		throw unsupported("savepoints");
 
 	}
 
@@ -288,8 +284,7 @@ public class OpenCanardConnection implements Connection {
 	@Override
 	public CallableStatement prepareCall(String sql, int resultSetType, int resultSetConcurrency,
 			int resultSetHoldability) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw unsupported("prepareCall");
 	}
 
 	@Override
@@ -309,26 +304,22 @@ public class OpenCanardConnection implements Connection {
 
 	@Override
 	public Clob createClob() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw unsupported("createClob");
 	}
 
 	@Override
 	public Blob createBlob() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw unsupported("createBlob");
 	}
 
 	@Override
 	public NClob createNClob() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw unsupported("createNClob");
 	}
 
 	@Override
 	public SQLXML createSQLXML() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw unsupported("createSQLXML");
 	}
 
 	@Override
@@ -365,26 +356,22 @@ public class OpenCanardConnection implements Connection {
 
 	@Override
 	public Properties getClientInfo() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		return new Properties();
 	}
 
 	@Override
 	public Array createArrayOf(String typeName, Object[] elements) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw unsupported("createArrayOf");
 	}
 
 	@Override
 	public Struct createStruct(String typeName, Object[] attributes) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw unsupported("createStruct");
 	}
 
 	@Override
 	public void abort(Executor executor) throws SQLException {
-		// TODO Auto-generated method stub
-
+		close();
 	}
 
 	@Override
