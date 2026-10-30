@@ -62,19 +62,51 @@ public final class DuckDBArrowUtil {
 	 */
 	public static Outcome run(Connection conn, String sql) throws Exception {
 		try (Statement stmt = conn.createStatement()) {
-			if (stmt.execute(sql)) {
+			boolean first = stmt.execute(sql);
+			int updateCount = stmt.getUpdateCount();
+			// The JDBC driver's answer is not trusted alone: a plain INSERT / UPDATE / DELETE / CREATE... never
+			// has rows to stream, and streaming it would run executeQuery on it and fail.
+			boolean update = !first || (WRITE_STATEMENT.matcher(sql).find() && !RETURNING.matcher(sql).find());
+			logger.info("[flight-sql] execute() returned {}, update count {}, treated as {}: {}", first, updateCount,
+					update ? "UPDATE" : "QUERY", abbreviate(sql));
+
+			if (!update) {
 				try (ResultSet rs = stmt.getResultSet()) {
 					JdbcToArrowConfig config = new JdbcToArrowConfigBuilder().setAllocator(new RootAllocator())
 							.setTargetBatchSize(1024).build();
 					return new Outcome(JdbcToArrowUtils.jdbcToArrowSchema(rs.getMetaData(), config), -1);
 				}
 			}
-			int count = stmt.getUpdateCount();
-			return new Outcome(null, Math.max(count, 0));
+
+			long count = Math.max(updateCount, 0);
+			if (first && count == 0) {
+				// Some DuckDB versions report the changed rows as a one-row result set named "Count"
+				try (ResultSet rs = stmt.getResultSet()) {
+					if (rs != null && rs.next()) {
+						count = rs.getLong(1);
+					}
+				} catch (Exception ignored) {
+					// no result set to read
+				}
+			}
+			return new Outcome(null, count);
 		} catch (Exception e) {
 			logger.error("Error running {}", sql, e);
 			throw e;
 		}
+	}
+
+	/** Statements that change data or settings and never return rows (unless they have RETURNING). */
+	private static final java.util.regex.Pattern WRITE_STATEMENT = java.util.regex.Pattern.compile(
+			"^\\s*(?:(?:--[^\\n]*(?:\\n|$)|/\\*.*?\\*/)\\s*)*(?:INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE|ATTACH|DETACH|"
+					+ "CHECKPOINT|VACUUM|ANALYZE|SET|RESET|USE|LOAD|INSTALL|BEGIN|COMMIT|ROLLBACK|COMMENT|GRANT|REVOKE)\\b",
+			java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.DOTALL);
+	private static final java.util.regex.Pattern RETURNING = java.util.regex.Pattern.compile("\\bRETURNING\\b",
+			java.util.regex.Pattern.CASE_INSENSITIVE);
+
+	private static String abbreviate(String sql) {
+		String oneLine = sql.replaceAll("\\s+", " ").trim();
+		return oneLine.length() <= 200 ? oneLine : oneLine.substring(0, 200) + "...";
 	}
 
 	// Get Arrow schema
