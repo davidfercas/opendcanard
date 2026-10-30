@@ -74,7 +74,13 @@ A user created through the REST API gets the DuckDB file `data/users/<login>.duc
 call of that user runs on that file, and on no other: each call gets its own connection to it, and the
 file is opened on the first call and kept open until the server stops.
 
-Users without a personal file, such as the admin created on the first start or users inserted by hand,
+Users with the role `admin`, including the admin created on the first start, do not use a personal
+database even if they have one: their Flight calls run on the **metadata** database
+(`metadata/metadata.duckdb`), so an admin can query `opencanard_users`. The role is read from
+`opencanard_users` on every call. Because the metadata database holds the password hashes, admin Flight
+access is full read-write access to it.
+
+Other users without a personal file, such as users inserted by hand,
 keep running on the shared database `data/opencanard.duckdb`, as before. Because a user is identified by the
 login the Flight authenticator accepted, this relies on the Basic credentials check; the unvalidated
 `Bearer` tokens (see below) are always treated as users without a personal file.

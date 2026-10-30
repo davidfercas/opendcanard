@@ -46,7 +46,9 @@ import io.grpc.internal.LogExceptionRunnable;
 import io.opencanard.auth.OpenCanardAuthenticator;
 import io.opencanard.conf.Config;
 import io.opencanard.rest.RestApiServer;
+import io.opencanard.user.User;
 import io.opencanard.user.UserDatabases;
+import io.opencanard.user.UserRepository;
 import io.opencanard.user.UserService;
 import io.opencanard.util.DuckDBArrowUtil;
 
@@ -186,6 +188,15 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 				}
 			}
 
+		} catch (Exception e) {
+			logger.error(e);
+			throw e;
+		}
+		// Admins run their Flight queries on the metadata database, which needs the arrow extension too
+		try (Statement stmt = this.metadatadb.createStatement()) {
+			stmt.execute("INSTALL arrow;");
+			stmt.execute("LOAD arrow;");
+			logger.info("arrow extension loaded in the metadata database");
 		} catch (Exception e) {
 			logger.error(e);
 			throw e;
@@ -357,15 +368,20 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	 * A connection for one Flight call, which the caller closes. The caller is identified by the login
 	 * the authenticator put in the call context:
 	 * <ul>
-	 * <li>users created through the API have their own database file ({@code <data.dir>/users/<login>.duckdb})
-	 * and always get a connection to it;</li>
-	 * <li>users without one (for example the admin created at the first start) keep using the shared
-	 * database, as before.</li>
+	 * <li>users with the role {@code admin} connect to the <b>metadata</b> database, never to a personal one,
+	 * even if they have a personal file;</li>
+	 * <li>other users created through the API have their own database file
+	 * ({@code <data.dir>/users/<login>.duckdb}) and always get a connection to it;</li>
+	 * <li>users without one (for example a user inserted by hand) use the shared database.</li>
 	 * </ul>
 	 * Closing a connection returned here never closes the underlying database.
 	 */
 	private Connection connectionFor(CallContext context) throws SQLException {
 		String login = context.peerIdentity();
+		if (isAdmin(login)) {
+			logger.debug("Flight call of admin '{}' uses the metadata database", login);
+			return ((DuckDBConnection) this.metadatadb).duplicate();
+		}
 		Connection personal = userDatabases.connect(login);
 		if (personal != null) {
 			logger.debug("Flight call of '{}' uses its own database", login);
@@ -373,6 +389,20 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		}
 		logger.debug("Flight call of '{}' uses the shared database", login);
 		return ((DuckDBConnection) this.duckdb).duplicate();
+	}
+
+	/** True when the login has the role {@code admin} in the metadata database. */
+	private boolean isAdmin(String login) {
+		if (login == null) {
+			return false;
+		}
+		try (Connection c = ((DuckDBConnection) this.metadatadb).duplicate()) {
+			User user = new UserRepository().getUser(c, login);
+			return user != null && user.getRoles() != null && user.getRoles().contains("admin");
+		} catch (Exception e) {
+			logger.error("Cannot read the role of '{}', treating it as a non-admin", login, e);
+			return false;
+		}
 	}
 
 	// ============================
