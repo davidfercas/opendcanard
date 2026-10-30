@@ -10,8 +10,8 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 /**
  * Creates users: a row in {@code opencanard_users} (BCrypt-hashed password) plus the user's own DuckDB
- * file named after the login. Creation is serialized, and if the row cannot be written the new database
- * file is removed again, so a failed creation leaves nothing behind.
+ * file named after the login, registered in {@code opencanard_databases}. Creation is serialized, and if a
+ * row cannot be written the new database file and registry row are removed again, so a failed creation leaves nothing behind.
  */
 public class UserService {
 
@@ -25,6 +25,7 @@ public class UserService {
 	private final Connection metadatadb;
 	private final UserDatabases userDatabases;
 	private final UserRepository userRepository = new UserRepository();
+	private final DatabaseRegistry databaseRegistry = new DatabaseRegistry();
 
 	public UserService(Connection metadatadb, UserDatabases userDatabases) {
 		this.metadatadb = metadatadb;
@@ -68,9 +69,16 @@ public class UserService {
 
 		userDatabases.create(username);
 		try {
-			userRepository.insert(metadatadb, username, passwordHash, role);
+			databaseRegistry.insert(metadatadb, username, username, UserDatabases.fileName(username));
+			try {
+				userRepository.insert(metadatadb, username, passwordHash, role);
+			} catch (Exception e) {
+				databaseRegistry.deleteByLogin(metadatadb, username);
+				throw e;
+			}
 		} catch (Exception e) {
-			logger.error("[create-user] could not insert '{}', removing its database file", username, e);
+			logger.error("[create-user] could not create '{}', removing its database file and registry row", username,
+					e);
 			userDatabases.delete(username);
 			throw e;
 		}

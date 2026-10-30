@@ -71,8 +71,9 @@ curl -s -X POST http://localhost:8084/management/users -u admin:change-me \
 | `password` | Required, at most 72 bytes (the limit of bcrypt). Stored as a bcrypt hash. |
 | `role` | `admin` or `user`. Optional, default `user`. |
 
-The call returns `201` and creates two things: a row in `opencanard_users`, and the user's own empty DuckDB
-file `data/users/<username>.duckdb`. If one of them cannot be created the other is removed again. It returns
+The call returns `201` and creates three things: the user's own empty DuckDB file
+`data/users/<username>.duckdb`, a row in `opencanard_databases` (login, database name, file, creation date) and a
+row in `opencanard_users`. If one of them cannot be created the others are removed again. It returns
 `409` if the user exists, or if a file `data/users/<username>.duckdb` is already there (for example left over
 from an interrupted creation: it is never overwritten, remove it first if it is not in use).
 

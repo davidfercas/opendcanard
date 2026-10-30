@@ -17,12 +17,14 @@ import org.apache.logging.log4j.Logger;
 import org.duckdb.DuckDBConnection;
 
 /**
- * Manages the personal DuckDB files of the users: {@code <dir>/<username>.duckdb}.
+ * Manages the personal DuckDB files of the users, stored in {@code <dir>} and listed in the table
+ * {@code opencanard_databases} of the metadata database (see {@link DatabaseRegistry}).
  * <ul>
  * <li>{@link #create} builds a new, empty database file for a user;</li>
- * <li>{@link #connect} opens (once per user, lazily) the user's file and hands out a new connection to
- * it for every call, so concurrent requests of a user never share a JDBC connection. The caller closes
- * the connection it gets; that does not close the database.</li>
+ * <li>{@link #connect} looks the login up in the registry, opens (once per file, lazily) the registered
+ * file and hands out a new connection to it for every call, so concurrent requests never share a JDBC
+ * connection. The caller closes the connection it gets; that does not close the database;</li>
+ * <li>{@link #reconcile} runs at startup and makes sure every non-admin user has a registered database.</li>
  * </ul>
  * A database file is never created by {@link #connect}: DuckDB creates a file just by connecting to a
  * path, so existence is checked first.
@@ -32,10 +34,13 @@ public class UserDatabases implements AutoCloseable {
 	private static final Logger logger = LogManager.getLogger(UserDatabases.class);
 
 	private final Path dir;
-	/** One open "base" connection per user; it keeps the user's database open between requests. */
+	private final Connection metadatadb;
+	private final DatabaseRegistry registry = new DatabaseRegistry();
+	/** One open "base" connection per database file; it keeps the database open between requests. */
 	private final Map<String, DuckDBConnection> open = new HashMap<>();
 
-	public UserDatabases(Path dir) throws IOException {
+	public UserDatabases(Path dir, Connection metadatadb) throws IOException {
+		this.metadatadb = metadatadb;
 		this.dir = dir.toAbsolutePath().normalize();
 		Files.createDirectories(this.dir);
 		logger.info("[user-db] user databases are stored in {}", this.dir);
@@ -43,6 +48,11 @@ public class UserDatabases implements AutoCloseable {
 
 	public Path databaseFile(String username) {
 		return UsernameValidator.databaseFile(dir, username);
+	}
+
+	/** The name stored in {@code opencanard_databases.duckdb_file} for the default database of a user. */
+	public static String fileName(String username) {
+		return username + ".duckdb";
 	}
 
 	public boolean exists(String username) {
@@ -85,7 +95,7 @@ public class UserDatabases implements AutoCloseable {
 	/** Closes and removes the user's database file (used to roll back a failed user creation). */
 	public synchronized void delete(String username) throws Exception {
 		Path file = databaseFile(username);
-		DuckDBConnection base = open.remove(username);
+		DuckDBConnection base = open.remove(file.toString());
 		if (base != null) {
 			base.close();
 		}
@@ -95,26 +105,100 @@ public class UserDatabases implements AutoCloseable {
 	}
 
 	/**
-	 * A new connection to the user's own database, or {@code null} if the user has none (the name is not a
-	 * valid file name, or no file exists). The caller must close it.
+	 * A new connection to the database registered for the login in {@code opencanard_databases}, or
+	 * {@code null} if the login has none. The caller must close it.
+	 *
+	 * @throws SQLException if the registered file is missing or lies outside the user databases directory
 	 */
-	public Connection connect(String username) throws SQLException {
-		if (!UsernameValidator.isValid(username)) {
+	public Connection connect(String login) throws SQLException {
+		if (login == null) {
 			return null;
 		}
+		DatabaseRegistry.Entry entry;
+		try (Connection meta = ((DuckDBConnection) metadatadb).duplicate()) {
+			entry = registry.find(meta, login);
+		}
+		if (entry == null) {
+			return null;
+		}
+
+		Path file = dir.resolve(entry.getDuckdbFile()).normalize();
+		if (!file.startsWith(dir)) {
+			throw new SQLException("The database registered for '" + login + "' is outside " + dir);
+		}
+
 		DuckDBConnection base;
 		synchronized (this) {
-			base = open.get(username);
+			base = open.get(file.toString());
 			if (base == null) {
-				Path file = databaseFile(username);
 				if (Files.notExists(file)) {
-					return null;
+					throw new SQLException("The database '" + entry.getDatabaseName() + "' of '" + login
+							+ "' is registered as " + file + " but the file does not exist");
 				}
-				base = open(username, file);
-				open.put(username, base);
+				base = open(login, file);
+				open.put(file.toString(), base);
 			}
 		}
 		return base.duplicate();
+	}
+
+	/**
+	 * Startup check of the registry:
+	 * <ul>
+	 * <li>every non-admin user without a registered database gets one: the existing {@code <login>.duckdb}
+	 * is registered, or a new empty file is created and registered. Admins use the metadata database and
+	 * get none;</li>
+	 * <li>a registered file that does not exist is reported as an error (it is not recreated, its owner
+	 * cannot connect until it is restored or the row removed).</li>
+	 * </ul>
+	 */
+	public synchronized void reconcile() {
+		logger.info("[user-db] checking opencanard_databases against opencanard_users and {}", dir);
+		try (Connection meta = ((DuckDBConnection) metadatadb).duplicate()) {
+			java.util.Set<String> registered = new java.util.HashSet<>();
+			for (DatabaseRegistry.Entry e : registry.list(meta)) {
+				registered.add(e.getLogin());
+				Path file = dir.resolve(e.getDuckdbFile()).normalize();
+				if (Files.exists(file)) {
+					logger.info("[user-db] '{}' -> {} ({}) OK", e.getLogin(), e.getDuckdbFile(), e.getDatabaseName());
+				} else {
+					logger.error("[user-db] '{}' is registered with {} but {} does not exist", e.getLogin(),
+							e.getDuckdbFile(), file);
+				}
+			}
+
+			java.util.List<String> logins = new java.util.ArrayList<>();
+			try (Statement st = meta.createStatement();
+					java.sql.ResultSet rs = st.executeQuery(
+							"SELECT username FROM main.opencanard_users WHERE \"role\" <> 'admin' ORDER BY username")) {
+				while (rs.next()) {
+					logins.add(rs.getString(1));
+				}
+			}
+			for (String login : logins) {
+				if (registered.contains(login)) {
+					continue;
+				}
+				if (!UsernameValidator.isValid(login)) {
+					logger.error("[user-db] user '{}' has no database and its name is not a valid file name", login);
+					continue;
+				}
+				try {
+					if (Files.exists(databaseFile(login))) {
+						logger.info("[user-db] user '{}' has no registry row, registering the existing file", login);
+					} else {
+						logger.info("[user-db] user '{}' has no database, creating it", login);
+						create(login);
+					}
+					registry.insert(meta, login, login, fileName(login));
+					logger.info("[user-db] registered '{}' -> {}", login, fileName(login));
+				} catch (Exception e) {
+					logger.error("[user-db] could not set up the database of '{}'", login, e);
+				}
+			}
+		} catch (Exception e) {
+			logger.error("[user-db] the registry check failed", e);
+		}
 	}
 
 	private DuckDBConnection open(String username, Path file) throws SQLException {

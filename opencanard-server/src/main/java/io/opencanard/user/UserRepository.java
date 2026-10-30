@@ -57,4 +57,13 @@ public class UserRepository {
 			stmt.executeUpdate();
 		}
 	}
+
+	/** Removes a user (used to roll back a failed creation). */
+	public void delete(Connection metadatadb, String username) throws Exception {
+		try (PreparedStatement stmt = metadatadb
+				.prepareStatement("DELETE FROM main.opencanard_users WHERE username = ?;")) {
+			stmt.setString(1, username);
+			stmt.executeUpdate();
+		}
+	}
 }

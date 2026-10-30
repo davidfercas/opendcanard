@@ -46,6 +46,7 @@ import io.grpc.internal.LogExceptionRunnable;
 import io.opencanard.auth.OpenCanardAuthenticator;
 import io.opencanard.conf.Config;
 import io.opencanard.rest.RestApiServer;
+import io.opencanard.user.DatabaseRegistry;
 import io.opencanard.user.User;
 import io.opencanard.user.UserDatabases;
 import io.opencanard.user.UserRepository;
@@ -211,7 +212,8 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		//this.server = FlightServer.builder(this.allocator, location, this).headerAuthenticator(CallHeaderAuthenticator.NO_OP).build(); 
 		
 		// REST API (Javalin): all endpoints live in the io.opencanard.rest package
-		this.userDatabases = new UserDatabases(Paths.get(DATA_DIR, "users"));
+		this.userDatabases = new UserDatabases(Paths.get(DATA_DIR, "users"), this.metadatadb);
+		this.userDatabases.reconcile();
 		UserService userService = new UserService(this.metadatadb, this.userDatabases);
 		this.restApi = new RestApiServer(this.duckdb, this.metadatadb, userService,
 				Config.getInt("opencanard.rest.port"));
@@ -268,6 +270,22 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 								+ "created_at TIMESTAMP NOT NULL DEFAULT now())");
 					}
 					logger.info("[metadata-init] table opencanard_users created");
+				}
+
+				// 1b. opencanard_databases table (login -> duckdb file): create only if it does not exist
+				boolean dbTableExists;
+				try (Statement stmt = conn.createStatement();
+						ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM information_schema.tables "
+								+ "WHERE table_schema = 'main' AND table_name = 'opencanard_databases'")) {
+					dbTableExists = rs.next() && rs.getInt(1) > 0;
+				}
+				if (dbTableExists) {
+					logger.info("[metadata-init] table opencanard_databases already exists, skipping creation");
+				} else {
+					try (Statement stmt = conn.createStatement()) {
+						stmt.execute(DatabaseRegistry.CREATE_TABLE);
+					}
+					logger.info("[metadata-init] table opencanard_databases created");
 				}
 
 				// 2. admin user: insert only if the username is not already in the table
@@ -368,11 +386,10 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	 * A connection for one Flight call, which the caller closes. The caller is identified by the login
 	 * the authenticator put in the call context:
 	 * <ul>
-	 * <li>users with the role {@code admin} connect to the <b>metadata</b> database, never to a personal one,
-	 * even if they have a personal file;</li>
-	 * <li>other users created through the API have their own database file
-	 * ({@code <data.dir>/users/<login>.duckdb}) and always get a connection to it;</li>
-	 * <li>users without one (for example a user inserted by hand) use the shared database.</li>
+	 * <li>users with the role {@code admin} connect to the <b>metadata</b> database;</li>
+	 * <li>every other user connects to the DuckDB file registered for the login in the table
+	 * {@code opencanard_databases} ({@code <data.dir>/users/<file>}). A login with no registered database
+	 * is refused: there is no shared fallback.</li>
 	 * </ul>
 	 * Closing a connection returned here never closes the underlying database.
 	 */
@@ -383,12 +400,11 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 			return ((DuckDBConnection) this.metadatadb).duplicate();
 		}
 		Connection personal = userDatabases.connect(login);
-		if (personal != null) {
-			logger.debug("Flight call of '{}' uses its own database", login);
-			return personal;
+		if (personal == null) {
+			throw new SQLException("No database is registered for '" + login + "' in opencanard_databases");
 		}
-		logger.debug("Flight call of '{}' uses the shared database", login);
-		return ((DuckDBConnection) this.duckdb).duplicate();
+		logger.debug("Flight call of '{}' uses its registered database", login);
+		return personal;
 	}
 
 	/** True when the login has the role {@code admin} in the metadata database. */

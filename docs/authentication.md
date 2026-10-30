@@ -28,7 +28,8 @@ that in lowercase; any other value gives no management access.
 ### Creating users
 
 An admin can create users through the REST API, see [Creating a user](rest-api.md#creating-a-user). Each
-user created that way also gets a personal database, see [Per-user databases](#per-user-databases).
+user created that way also gets a personal database registered in `opencanard_databases`, see
+[Per-user databases](#per-user-databases).
 The sections below describe the first admin and manual creation.
 
 The first time the server starts without a `metadata/metadata.duckdb` file, it creates the file, the
@@ -70,20 +71,36 @@ The server verifies passwords with Spring Security's `BCryptPasswordEncoder`, wh
 
 ## Per-user databases
 
-A user created through the REST API gets the DuckDB file `data/users/<login>.duckdb`. Every Arrow Flight
-call of that user runs on that file, and on no other: each call gets its own connection to it, and the
-file is opened on the first call and kept open until the server stops.
+The metadata database has a second table, `opencanard_databases`, which says which DuckDB file each login
+connects to:
 
-Users with the role `admin`, including the admin created on the first start, do not use a personal
-database even if they have one: their Flight calls run on the **metadata** database
-(`metadata/metadata.duckdb`), so an admin can query `opencanard_users`. The role is read from
-`opencanard_users` on every call. Because the metadata database holds the password hashes, admin Flight
-access is full read-write access to it.
+```sql
+CREATE TABLE opencanard_databases(
+    login         VARCHAR NOT NULL,
+    database_name VARCHAR NOT NULL,     -- the login, for the default database
+    duckdb_file   VARCHAR NOT NULL,     -- file name inside data/users/
+    created_at    TIMESTAMP NOT NULL DEFAULT now(),
+    PRIMARY KEY (login, database_name)
+);
+```
 
-Other users without a personal file, such as users inserted by hand,
-keep running on the shared database `data/opencanard.duckdb`, as before. Because a user is identified by the
-login the Flight authenticator accepted, this relies on the Basic credentials check; the unvalidated
-`Bearer` tokens (see below) are always treated as users without a personal file.
+On every Arrow Flight call the server looks the caller up in this table and opens a connection to the
+registered file (`data/users/<duckdb_file>`). Each call gets its own connection; the file is opened on the
+first call and kept open until the server stops.
+
+- **Admins** (role `admin`, including the admin created on the first start) do not use a personal database:
+  their Flight calls run on the **metadata** database, so an admin can query `opencanard_users` and
+  `opencanard_databases`. The role is read from `opencanard_users` on every call. Because that database holds
+  the password hashes, admin Flight access is full read-write access to it.
+- **Every other user** must have a row in `opencanard_databases`. A login without one, a missing file, or the
+  unvalidated `Bearer` tokens (see below, they have no registered login) are refused with an error. There is no
+  shared database fallback.
+- **Creating a user** through the REST API creates the file `data/users/<login>.duckdb`, the row in
+  `opencanard_databases` and the row in `opencanard_users`, and removes whatever was created if one step fails.
+- **At every start** the server checks the registry: each non-admin user without a row gets one (an existing
+  `<login>.duckdb` is registered, otherwise an empty file is created and registered), and a registered file
+  that does not exist is logged as an error. Look for `[user-db]` in the log. Users inserted by hand in SQL are
+  therefore picked up at the next start.
 
 ## Arrow Flight port
 
