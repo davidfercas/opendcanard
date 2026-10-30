@@ -244,7 +244,7 @@ public class OpenCanardConnection implements Connection {
 
 	@Override
 	public int getHoldability() throws SQLException {
-		return ResultSet.CLOSE_CURSORS_AT_COMMIT;
+		return java.sql.ResultSet.CLOSE_CURSORS_AT_COMMIT;
 	}
 
 	@Override
