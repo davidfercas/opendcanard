@@ -1,0 +1,9 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: OpenCanard connector for DBeaver
+Bundle-SymbolicName: org.opencanard.dbeaver.connector;singleton:=true
+Bundle-Version: 0.1.0
+Bundle-Vendor: OpenCanard
+Bundle-RequiredExecutionEnvironment: JavaSE-17
+Require-Bundle: org.jkiss.dbeaver.model,
+ org.jkiss.dbeaver.ext.generic

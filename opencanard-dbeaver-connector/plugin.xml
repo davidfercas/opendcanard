@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.2"?>
+<!--
+  OpenCanard connector for DBeaver: a "OpenCanard" entry (with the logo) in the New Connection dialog.
+  It is a regular Generic JDBC data source whose driver is the OpenCanard JDBC driver.
+-->
+<plugin>
+    <extension point="org.jkiss.dbeaver.dataSourceProvider">
+        <datasource
+                id="opencanard"
+                parent="generic"
+                class="org.jkiss.dbeaver.ext.generic.GenericDataSourceProvider"
+                label="OpenCanard"
+                icon="icons/opencanard_icon.png"
+                dialect="generic"
+                description="OpenCanard: DuckDB over Apache Arrow Flight">
+            <drivers managable="true">
+                <driver
+                        id="opencanard"
+                        label="OpenCanard"
+                        icon="icons/opencanard_icon.png"
+                        iconBig="icons/opencanard_icon_big.png"
+                        class="io.opencanard.driver.jdbc.OpenCanardDriver"
+                        sampleURL="jdbc:opencanard://{host}[:{port}]"
+                        defaultPort="8815"
+                        description="OpenCanard JDBC driver (Arrow Flight, port 8815 by default)"
+                        webURL="https://github.com/davidfercas/opendcanard"
+                        categories="sql,analytic">
+                    <!-- The driver jar is packed into the bundle by build.ps1 / build.sh when it has been built.
+                         If DBeaver reports a missing file, add the jar by hand: Database > Driver Manager >
+                         OpenCanard > Libraries > Add File (opencanard-jdbc-driver-0.1-all.jar). -->
+                    <file type="jar" path="drivers/opencanard-jdbc-driver-0.1-all.jar" bundle="org.opencanard.dbeaver.connector"/>
+                </driver>
+            </drivers>
+        </datasource>
+    </extension>
+</plugin>

@@ -112,3 +112,8 @@ the `SQLException` message. This matters for `Could not initialize class ...` er
 reports the real cause the first time; the driver keeps that first failure and repeats it in later errors.
 
 `OpenCanardJdbcClient` is a test client: `java -cp <driver jar> io.opencanard.driver.jdbc.OpenCanardJdbcClient [url] [user] [password] [sql]`.
+
+### DBeaver
+
+`opencanard-dbeaver-connector/` contains a DBeaver plugin that adds OpenCanard, with its logo, to the New
+Connection dialog. See its [README](../opencanard-dbeaver-connector/README.md) for how to build and install it.
