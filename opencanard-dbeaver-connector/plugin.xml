@@ -35,24 +35,9 @@
         </datasource>
     </extension>
 
-    <!-- The connection page (host / port / user / password): without it the entry is listed but clicking does nothing.
-         Same page that the Generic JDBC data source uses. -->
-    <extension point="org.jkiss.dbeaver.dataSourceView">
-        <view
-                id="org.opencanard.dbeaver.connector.dataSourceWizardView"
-                dataSource="opencanard"
-                targetID="org.jkiss.dbeaver.ext.ui.newConnectionWizard"
-                class="org.jkiss.dbeaver.ext.generic.views.GenericConnectionPage"
-                label="OpenCanard connection settings"
-                description="Connect to an OpenCanard server">
-        </view>
-        <view
-                id="org.opencanard.dbeaver.connector.dataSourceEditorView"
-                dataSource="opencanard"
-                targetID="org.jkiss.dbeaver.ui.editors.connection.ConnectionPageAbstract"
-                class="org.jkiss.dbeaver.ext.generic.views.GenericConnectionPage"
-                label="OpenCanard connection settings"
-                description="Connect to an OpenCanard server">
-        </view>
+    <!-- The connection page (host / port / user / password). Without it the entry is listed but clicking it does
+         nothing. Same registration as the Generic JDBC data source (org.jkiss.dbeaver.ext.generic.ui). -->
+    <extension point="org.jkiss.dbeaver.dataSourceConfigurator">
+        <configurator dataSource="opencanard" class="org.jkiss.dbeaver.ext.generic.views.GenericConnectionPage"/>
     </extension>
 </plugin>

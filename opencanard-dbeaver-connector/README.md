@@ -72,17 +72,14 @@ URL above. DBeaver does not let a manually created driver have a custom icon, wh
 
 ## Diagnosing "clicking does nothing"
 
-A listed entry that does nothing when clicked usually lacks a connection page for its data source, or the class of
-that page is not visible to the plugin. To see how this DBeaver version declares the Generic data source, run
-(DBeaver closed or open, it only reads):
+A listed entry that does nothing when clicked has no connection page. DBeaver attaches the page with the
+`org.jkiss.dbeaver.dataSourceConfigurator` extension point (see `plugin.xml`, copied from the Generic data
+source in `org.jkiss.dbeaver.ext.generic.ui`). If a future DBeaver version changes it, print how it declares the
+Generic page and compare:
 
 ```powershell
-$p = "$env:LOCALAPPDATA\DBeaver\plugins"
-Get-ChildItem $p -Filter "org.jkiss.dbeaver.ext.generic*"          # which generic bundles exist
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-foreach ($f in Get-ChildItem $p -Filter "org.jkiss.dbeaver.ext.generic*.jar") {
-  $z = [IO.Compression.ZipFile]::OpenRead($f.FullName)
-  $e = $z.GetEntry("plugin.xml"); if ($e) {
-    $r = New-Object IO.StreamReader($e.Open()); "=== $($f.Name)"; ($r.ReadToEnd() -split "`n" | Select-String "dataSourceView|<view|class=.*Page|targetID") ; $r.Close() }
-  $z.Dispose() }
+$jar = Get-ChildItem "$env:LOCALAPPDATA\DBeaver\plugins" -Filter "org.jkiss.dbeaver.ext.generic.ui_*.jar" | Select-Object -First 1
+$z = [IO.Compression.ZipFile]::OpenRead($jar.FullName)
+$r = New-Object IO.StreamReader($z.GetEntry("plugin.xml").Open()); $r.ReadToEnd(); $r.Close(); $z.Dispose()
 ```
