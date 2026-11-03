@@ -29,18 +29,33 @@ Connection* dialog. It is a Generic JDBC data source with the OpenCanard JDBC dr
    ./build.sh         # Linux / macOS
    ```
 
-   The result is `target/opencanard-dbeaver-connector_0.1.0.jar`. Without the driver jar from step 1 the
+   The result is `target/org.opencanard.dbeaver.connector_0.1.0.jar`. Without the driver jar from step 1 the
    plugin is built without it and you add the jar by hand in DBeaver (see below).
 
 ## Install
 
 1. Close DBeaver.
-2. Copy `opencanard-dbeaver-connector_0.1.0.jar` to the `dropins` folder of the DBeaver installation, for example
+2. Copy `org.opencanard.dbeaver.connector_0.1.0.jar` to the `dropins` folder of the DBeaver installation, for example
    `C:\Program Files\DBeaver\dropins\`.
 3. Start DBeaver once with a clean plugin cache: `dbeaver.exe -clean`.
 4. *Database > New Database Connection*, search for **OpenCanard**.
 
 After a new version of the plugin or the driver, repeat the steps (the `-clean` start is needed again).
+
+## Install without `dropins`
+
+If the plugin is not listed after using `dropins` (the `dropins` folder is not always picked up), install it
+straight into DBeaver. With DBeaver closed, from this folder:
+
+```powershell
+.\install.ps1                                      # DBeaver in %LOCALAPPDATA%\DBeaver
+.\install.ps1 -DBeaverDir "C:\Program Files\DBeaver"  # or another installation
+```
+
+It copies the jar to `<DBeaver>\plugins`, adds one line to
+`<DBeaver>\configuration\org.eclipse.equinox.simpleconfigurator\bundles.info` (a backup is saved next to it as
+`bundles.info.opencanard.bak`), and you then start DBeaver once with `dbeaver.exe -clean`.
+`.\install.ps1 -Uninstall` removes it again. Remove a jar you put in `dropins` first.
 
 ## If it does not show up
 

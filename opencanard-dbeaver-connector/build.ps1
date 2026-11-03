@@ -1,4 +1,4 @@
-# Builds opencanard-dbeaver-connector_0.1.0.jar, the plugin to drop into DBeaver's dropins folder.
+# Builds org.opencanard.dbeaver.connector_0.1.0.jar, the plugin to drop into DBeaver's dropins folder.
 # Build the driver first:  mvn -pl opencanard-jdbc-driver -am clean package
 # Needs a JDK on the PATH (the "jar" tool).
 $ErrorActionPreference = 'Stop'
@@ -7,7 +7,7 @@ Set-Location $PSScriptRoot
 $driver = '..\opencanard-jdbc-driver\target\opencanard-jdbc-driver-0.1-all.jar'
 $out    = 'target'
 $bundle = "$out\bundle"
-$jar    = "$out\opencanard-dbeaver-connector_0.1.0.jar"
+$jar    = "$out\org.opencanard.dbeaver.connector_0.1.0.jar"
 
 if (Test-Path $out) { Remove-Item -Recurse -Force $out }
 New-Item -ItemType Directory -Force "$bundle\drivers" | Out-Null
