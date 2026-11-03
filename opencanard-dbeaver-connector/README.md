@@ -70,16 +70,10 @@ It copies the jar to `<DBeaver>\plugins`, adds one line to
 Without the plugin you can still connect: create a driver by hand in *Driver Manager > New* with the class and
 URL above. DBeaver does not let a manually created driver have a custom icon, which is why this plugin exists.
 
-## Diagnosing "clicking does nothing"
+## How it is built
 
-A listed entry that does nothing when clicked has no connection page. DBeaver attaches the page with the
-`org.jkiss.dbeaver.dataSourceConfigurator` extension point (see `plugin.xml`, copied from the Generic data
-source in `org.jkiss.dbeaver.ext.generic.ui`). If a future DBeaver version changes it, print how it declares the
-Generic page and compare:
-
-```powershell
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$jar = Get-ChildItem "$env:LOCALAPPDATA\DBeaver\plugins" -Filter "org.jkiss.dbeaver.ext.generic.ui_*.jar" | Select-Object -First 1
-$z = [IO.Compression.ZipFile]::OpenRead($jar.FullName)
-$r = New-Object IO.StreamReader($z.GetEntry("plugin.xml").Open()); $r.ReadToEnd(); $r.Close(); $z.Dispose()
-```
+`plugin.xml` follows DBeaver's own Generic-based entries (for example DuckDB and Elasticsearch in
+`org.jkiss.dbeaver.ext.generic`): a `datasource` with `parent="generic"` and the class
+`org.jkiss.dbeaver.ext.generic.GenericDataSourceProviderBasic`. The connection page and the navigator tree come
+from `generic`, so the plugin must NOT register its own connection page (an extra `dataSourceConfigurator` made the
+New Connection wizard fail with `this.tabFolder is null`).

@@ -1,30 +1,40 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <?eclipse version="3.2"?>
 <!--
-  OpenCanard connector for DBeaver: a "OpenCanard" entry (with the logo) in the New Connection dialog.
-  It is a regular Generic JDBC data source whose driver is the OpenCanard JDBC driver.
+  OpenCanard connector for DBeaver: an "OpenCanard" entry (with the logo) in the New Connection dialog.
+  Same structure as DBeaver's own Generic-based entries (Elasticsearch, DuckDB...): a data source with
+  parent="generic" and the Generic provider class. The connection page and the tree are inherited from "generic".
 -->
 <plugin>
     <extension point="org.jkiss.dbeaver.dataSourceProvider">
-        <datasource
+        <dataSourceType
                 id="opencanard"
+                label="OpenCanard"
+                description="OpenCanard: DuckDB over Apache Arrow Flight"
+                dataSourceInformation="DuckDB server with an Arrow Flight interface"
+                icon="icons/opencanard_icon.png"
+                iconBig="icons/opencanard_icon_big.png"/>
+        <datasource
+                class="org.jkiss.dbeaver.ext.generic.GenericDataSourceProviderBasic"
+                description="OpenCanard JDBC connector"
+                id="opencanard"
+                dataSourceType="opencanard"
                 parent="generic"
-                class="org.jkiss.dbeaver.ext.generic.GenericDataSourceProvider"
                 label="OpenCanard"
                 icon="icons/opencanard_icon.png"
-                dialect="generic"
-                description="OpenCanard: DuckDB over Apache Arrow Flight">
+                dialect="generic">
             <drivers managable="true">
                 <driver
-                        id="opencanard"
+                        id="opencanard_jdbc"
                         label="OpenCanard"
                         icon="icons/opencanard_icon.png"
                         iconBig="icons/opencanard_icon_big.png"
                         class="io.opencanard.driver.jdbc.OpenCanardDriver"
                         sampleURL="jdbc:opencanard://{host}[:{port}]"
                         defaultPort="8815"
-                        description="OpenCanard JDBC driver (Arrow Flight, port 8815 by default)"
                         webURL="https://github.com/davidfercas/opendcanard"
+                        description="OpenCanard JDBC driver (Arrow Flight, port 8815 by default)"
+                        supportedConfigurationTypes="MANUAL,URL"
                         categories="sql,analytic">
                     <!-- The driver jar is packed into the bundle by build.ps1 / build.sh when it has been built.
                          If DBeaver reports a missing file, add the jar by hand: Database > Driver Manager >
@@ -33,11 +43,5 @@
                 </driver>
             </drivers>
         </datasource>
-    </extension>
-
-    <!-- The connection page (host / port / user / password). Without it the entry is listed but clicking it does
-         nothing. Same registration as the Generic JDBC data source (org.jkiss.dbeaver.ext.generic.ui). -->
-    <extension point="org.jkiss.dbeaver.dataSourceConfigurator">
-        <configurator dataSource="opencanard" class="org.jkiss.dbeaver.ext.generic.views.GenericConnectionPage"/>
     </extension>
 </plugin>
