@@ -69,3 +69,20 @@ It copies the jar to `<DBeaver>\plugins`, adds one line to
 
 Without the plugin you can still connect: create a driver by hand in *Driver Manager > New* with the class and
 URL above. DBeaver does not let a manually created driver have a custom icon, which is why this plugin exists.
+
+## Diagnosing "clicking does nothing"
+
+A listed entry that does nothing when clicked usually lacks a connection page for its data source, or the class of
+that page is not visible to the plugin. To see how this DBeaver version declares the Generic data source, run
+(DBeaver closed or open, it only reads):
+
+```powershell
+$p = "$env:LOCALAPPDATA\DBeaver\plugins"
+Get-ChildItem $p -Filter "org.jkiss.dbeaver.ext.generic*"          # which generic bundles exist
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+foreach ($f in Get-ChildItem $p -Filter "org.jkiss.dbeaver.ext.generic*.jar") {
+  $z = [IO.Compression.ZipFile]::OpenRead($f.FullName)
+  $e = $z.GetEntry("plugin.xml"); if ($e) {
+    $r = New-Object IO.StreamReader($e.Open()); "=== $($f.Name)"; ($r.ReadToEnd() -split "`n" | Select-String "dataSourceView|<view|class=.*Page|targetID") ; $r.Close() }
+  $z.Dispose() }
+```
