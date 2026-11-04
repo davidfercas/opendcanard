@@ -101,6 +101,10 @@ public final class StorageValidator {
 			if (secret.length() > MAX_SECRET) {
 				throw new IllegalArgumentException("Secret access key is longer than " + MAX_SECRET + " characters");
 			}
+			if (!secret.equals(secret.strip())) {
+				throw new IllegalArgumentException(
+						"Secret access key starts or ends with a space; remove it, since the storage would reject the key");
+			}
 			for (int i = 0; i < secret.length(); i++) {
 				if (Character.isISOControl(secret.charAt(i))) {
 					throw new IllegalArgumentException(
