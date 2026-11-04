@@ -18,6 +18,20 @@ public class RestRoutes {
 		this.authMiddleware = authMiddleware;
 	}
 
+	private byte[] index;
+
+	private synchronized byte[] indexPage() throws java.io.IOException {
+		if (index == null) {
+			try (java.io.InputStream in = RestRoutes.class.getResourceAsStream("/web/index.html")) {
+				if (in == null) {
+					throw new java.io.FileNotFoundException("web/index.html is not in the server jar");
+				}
+				index = in.readAllBytes();
+			}
+		}
+		return index;
+	}
+
 	public void register(RoutesConfig routes) {
 
 		// PUBLIC LOGIN: exchange credentials for a token
@@ -31,7 +45,16 @@ public class RestRoutes {
 
 		// WEB CONSOLE: the page itself is static (see RestApiServer); its API needs a login, any role
 		routes.get("/", ctx -> ctx.redirect("/console/"));
-		routes.get("/console", ctx -> ctx.redirect("/console/"));
+		// Javalin ignores trailing slashes, so "/console" and "/console/" reach the same handler: redirect only the
+		// form without the slash (the page's relative links need it) and serve the page for the other.
+		routes.get("/console", ctx -> {
+			if (!ctx.path().endsWith("/")) {
+				ctx.redirect("/console/");
+				return;
+			}
+			ctx.contentType("text/html; charset=utf-8");
+			ctx.result(indexPage());
+		});
 		routes.before("/api/console/*", authMiddleware);
 		routes.get("/api/console/session", console::session);
 		routes.get("/api/console/catalog", console::catalog);
