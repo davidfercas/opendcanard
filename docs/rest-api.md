@@ -100,3 +100,8 @@ All REST code is in the `io.opencanard.rest` package; `OpenCanardServer` only cr
 
 To add an endpoint, add a handler method (with its `@OpenApi` annotation) to `OpenCanardApiController` and
 register it in `RestRoutes`.
+
+## Console endpoints
+
+`/api/console/*` serves the [web console](web-console.md): `session`, `catalog`, `columns` and `query`. They
+require a login of any role and run on the caller's own database.

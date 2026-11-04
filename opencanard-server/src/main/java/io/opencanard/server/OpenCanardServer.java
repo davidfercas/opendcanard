@@ -39,7 +39,6 @@ import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.duckdb.DuckDBConnection;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import io.grpc.internal.LogExceptionRunnable;
@@ -47,9 +46,8 @@ import io.opencanard.auth.OpenCanardAuthenticator;
 import io.opencanard.conf.Config;
 import io.opencanard.rest.RestApiServer;
 import io.opencanard.user.DatabaseRegistry;
-import io.opencanard.user.User;
+import io.opencanard.user.UserConnections;
 import io.opencanard.user.UserDatabases;
-import io.opencanard.user.UserRepository;
 import io.opencanard.user.UserService;
 import io.opencanard.util.DuckDBArrowUtil;
 
@@ -62,6 +60,7 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	private final RestApiServer restApi; // REST API, see io.opencanard.rest
 	// One DuckDB file per user created through the API: <data.dir>/users/<login>.duckdb
 	private final UserDatabases userDatabases;
+	private final UserConnections userConnections;
 	
 	
 	
@@ -215,7 +214,8 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		this.userDatabases = new UserDatabases(Paths.get(DATA_DIR, "users"), this.metadatadb);
 		this.userDatabases.reconcile();
 		UserService userService = new UserService(this.metadatadb, this.userDatabases);
-		this.restApi = new RestApiServer(this.duckdb, this.metadatadb, userService,
+		this.userConnections = new UserConnections(this.metadatadb, this.userDatabases);
+		this.restApi = new RestApiServer(this.duckdb, this.metadatadb, userService, this.userConnections,
 				Config.getInt("opencanard.rest.port"));
 	}
 
@@ -383,42 +383,12 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	}
 
 	/**
-	 * A connection for one Flight call, which the caller closes. The caller is identified by the login
-	 * the authenticator put in the call context:
-	 * <ul>
-	 * <li>users with the role {@code admin} connect to the <b>metadata</b> database;</li>
-	 * <li>every other user connects to the DuckDB file registered for the login in the table
-	 * {@code opencanard_databases} ({@code <data.dir>/users/<file>}). A login with no registered database
-	 * is refused: there is no shared fallback.</li>
-	 * </ul>
-	 * Closing a connection returned here never closes the underlying database.
+	 * A connection for one Flight call, which the caller closes. The caller is identified by the login the
+	 * authenticator put in the call context; {@link UserConnections} decides the database (admins: metadata,
+	 * everyone else: the file registered in {@code opencanard_databases}, otherwise the call is refused).
 	 */
 	private Connection connectionFor(CallContext context) throws SQLException {
-		String login = context.peerIdentity();
-		if (isAdmin(login)) {
-			logger.debug("Flight call of admin '{}' uses the metadata database", login);
-			return ((DuckDBConnection) this.metadatadb).duplicate();
-		}
-		Connection personal = userDatabases.connect(login);
-		if (personal == null) {
-			throw new SQLException("No database is registered for '" + login + "' in opencanard_databases");
-		}
-		logger.debug("Flight call of '{}' uses its registered database", login);
-		return personal;
-	}
-
-	/** True when the login has the role {@code admin} in the metadata database. */
-	private boolean isAdmin(String login) {
-		if (login == null) {
-			return false;
-		}
-		try (Connection c = ((DuckDBConnection) this.metadatadb).duplicate()) {
-			User user = new UserRepository().getUser(c, login);
-			return user != null && user.getRoles() != null && user.getRoles().contains("admin");
-		} catch (Exception e) {
-			logger.error("Cannot read the role of '{}', treating it as a non-admin", login, e);
-			return false;
-		}
+		return userConnections.open(context.peerIdentity());
 	}
 
 	// ============================

@@ -73,6 +73,7 @@ bin/start.sh          # bin\start.bat on Windows
 ```
 
 The Flight server listens on port `8815` and the REST API on `8084` by default.
+The web console is at `http://localhost:8084/console/`.
 See [docs/configuration.md](docs/configuration.md) to change them.
 
 ### 3. Create a user
@@ -110,6 +111,7 @@ Details are in [docs/clients.md](docs/clients.md).
 
 - [Configuration](docs/configuration.md) — properties, directories and JVM options.
 - [Authentication and security](docs/authentication.md) — users, tokens, TLS and known limitations.
+- [Web console](docs/web-console.md) — browse the database and run SQL from the browser.
 - [REST API](docs/rest-api.md) — health, login and management endpoints.
 - [Clients](docs/clients.md) — Python and JDBC usage.
 - [Deployment](docs/deployment.md) — systemd service for Red Hat and Docker.

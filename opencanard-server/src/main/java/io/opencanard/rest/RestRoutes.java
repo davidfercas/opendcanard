@@ -10,9 +10,11 @@ public class RestRoutes {
 
 	private final OpenCanardApiController controller;
 	private final AuthMiddleware authMiddleware;
+	private final ConsoleController console;
 
-	public RestRoutes(OpenCanardApiController controller, AuthMiddleware authMiddleware) {
+	public RestRoutes(OpenCanardApiController controller, ConsoleController console, AuthMiddleware authMiddleware) {
 		this.controller = controller;
+		this.console = console;
 		this.authMiddleware = authMiddleware;
 	}
 
@@ -26,6 +28,15 @@ public class RestRoutes {
 
 		// PUBLIC
 		routes.get("/health", controller::handleHealthCheck);
+
+		// WEB CONSOLE: the page itself is static (see RestApiServer); its API needs a login, any role
+		routes.get("/", ctx -> ctx.redirect("/console/"));
+		routes.get("/console", ctx -> ctx.redirect("/console/"));
+		routes.before("/api/console/*", authMiddleware);
+		routes.get("/api/console/session", console::session);
+		routes.get("/api/console/catalog", console::catalog);
+		routes.get("/api/console/columns", console::columns);
+		routes.post("/api/console/query", console::query);
 
 		// MANAGEMENT (admin role)
 		routes.get("/management/databases", controller::listDatabases);

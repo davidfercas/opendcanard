@@ -8,6 +8,7 @@ import org.apache.logging.log4j.Logger;
 import io.javalin.Javalin;
 import io.javalin.openapi.plugin.OpenApiPlugin;
 import io.javalin.openapi.plugin.swagger.SwaggerPlugin;
+import io.opencanard.user.UserConnections;
 import io.opencanard.user.UserService;
 
 /**
@@ -23,11 +24,12 @@ public class RestApiServer implements AutoCloseable {
 	private final Javalin app;
 	private final int port;
 
-	public RestApiServer(Connection duckdb, Connection metadatadb, UserService userService, int port) {
+	public RestApiServer(Connection duckdb, Connection metadatadb, UserService userService, UserConnections userConnections,
+			int port) {
 		this.port = port;
 
 		OpenCanardApiController controller = new OpenCanardApiController(duckdb, metadatadb, userService);
-		RestRoutes routes = new RestRoutes(controller, new AuthMiddleware(controller));
+		RestRoutes routes = new RestRoutes(controller, new ConsoleController(userConnections), new AuthMiddleware(controller));
 
 		this.app = Javalin.create(config -> {
 			config.registerPlugin(new OpenApiPlugin(openapi -> {
@@ -63,6 +65,13 @@ public class RestApiServer implements AutoCloseable {
 
 			config.registerPlugin(new SwaggerPlugin());
 
+			// The web console: files under src/main/resources/web, served at /console/
+			config.staticFiles.add(files -> {
+				files.hostedPath = "/console";
+				files.directory = "/web";
+				files.location = io.javalin.http.staticfiles.Location.CLASSPATH;
+			});
+
 			config.jetty.port = this.port;
 			routes.register(config.routes);
 		});
@@ -70,7 +79,7 @@ public class RestApiServer implements AutoCloseable {
 
 	public void start() {
 		app.start(port);
-		logger.info("REST API started on port {} (Swagger UI at /swagger, OpenAPI document at /openapi)", port);
+		logger.info("REST API started on port {} (web console at /console/, Swagger UI at /swagger, OpenAPI document at /openapi)", port);
 		System.out.println("REST API started at http://localhost:" + port);
 	}
 
