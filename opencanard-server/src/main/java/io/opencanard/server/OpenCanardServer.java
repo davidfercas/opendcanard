@@ -46,6 +46,9 @@ import io.opencanard.auth.OpenCanardAuthenticator;
 import io.opencanard.conf.Config;
 import io.opencanard.rest.RestApiServer;
 import io.opencanard.user.DatabaseRegistry;
+import io.opencanard.storage.SecretBox;
+import io.opencanard.storage.StorageRepository;
+import io.opencanard.storage.StorageService;
 import io.opencanard.user.UserConnections;
 import io.opencanard.user.UserDatabases;
 import io.opencanard.user.UserService;
@@ -215,8 +218,16 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		this.userDatabases.reconcile();
 		UserService userService = new UserService(this.metadatadb, this.userDatabases);
 		this.userConnections = new UserConnections(this.metadatadb, this.userDatabases);
+		StorageService storageService;
+		try {
+			// key: property opencanard.storage.key, or the file conf/storage.key (created on first start)
+			storageService = new StorageService(this.metadatadb,
+					SecretBox.open(Config.get("opencanard.storage.key"), Paths.get(CONF_DIR, "storage.key")));
+		} catch (java.io.IOException e) {
+			throw new IllegalStateException("Cannot read or create the storage key " + Paths.get(CONF_DIR, "storage.key"), e);
+		}
 		this.restApi = new RestApiServer(this.duckdb, this.metadatadb, userService, this.userConnections,
-				Config.getInt("opencanard.rest.port"));
+				storageService, Config.getInt("opencanard.rest.port"));
 	}
 
 	/**
@@ -286,6 +297,22 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 						stmt.execute(DatabaseRegistry.CREATE_TABLE);
 					}
 					logger.info("[metadata-init] table opencanard_databases created");
+				}
+
+				// 1c. opencanard_storages table (S3 storages of every user): create only if it does not exist
+				boolean storageTableExists;
+				try (Statement stmt = conn.createStatement();
+						ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM information_schema.tables "
+								+ "WHERE table_schema = 'main' AND table_name = 'opencanard_storages'")) {
+					storageTableExists = rs.next() && rs.getInt(1) > 0;
+				}
+				if (storageTableExists) {
+					logger.info("[metadata-init] table opencanard_storages already exists, skipping creation");
+				} else {
+					try (Statement stmt = conn.createStatement()) {
+						stmt.execute(StorageRepository.CREATE_TABLE);
+					}
+					logger.info("[metadata-init] table opencanard_storages created");
 				}
 
 				// 2. admin user: insert only if the username is not already in the table

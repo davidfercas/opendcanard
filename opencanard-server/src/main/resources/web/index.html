@@ -19,6 +19,10 @@
 	<symbol id="i-column" viewBox="0 0 16 16"><rect x="5.5" y="2.5" width="5" height="11" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
 	<symbol id="i-key" viewBox="0 0 16 16"><circle cx="5" cy="8" r="2.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M7.5 8H14M11.5 8v2.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></symbol>
 	<symbol id="i-refresh" viewBox="0 0 16 16"><path d="M13 3.5V7H9.5M3 12.5V9h3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.6 7A5 5 0 0 0 4 5M3.4 9A5 5 0 0 0 12 11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+	<symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+	<symbol id="i-bucket" viewBox="0 0 16 16"><path d="M2.5 4.5h11l-1.2 8a1.5 1.5 0 0 1-1.5 1.3H5.2a1.5 1.5 0 0 1-1.5-1.3z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><ellipse cx="8" cy="4.5" rx="5.5" ry="1.7" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+	<symbol id="i-edit" viewBox="0 0 16 16"><path d="M3 13l.6-2.9L10.8 2.9a1.4 1.4 0 0 1 2 0l.3.3a1.4 1.4 0 0 1 0 2L5.9 12.4z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></symbol>
+	<symbol id="i-trash" viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 	<symbol id="i-play" viewBox="0 0 16 16"><path d="M4.5 2.8v10.4L13 8z" fill="currentColor"/></symbol>
 	<symbol id="i-theme" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 2.8v10.4A5.2 5.2 0 0 0 8 2.8z" fill="currentColor"/></symbol>
 </svg>
@@ -49,13 +53,25 @@
 	</header>
 
 	<div class="workspace" id="workspace">
-		<aside class="side" id="side" aria-label="Database structure">
-			<div class="side-head">
-				<span id="connLabel" class="conn-label"></span>
-				<button id="refreshBtn" class="icon-btn" type="button" title="Reload structure" aria-label="Reload structure"><svg class="ico"><use href="#i-refresh"/></svg></button>
-			</div>
-			<div class="side-filter"><input id="filter" type="search" placeholder="Filter tables, views and indexes" aria-label="Filter tables, views and indexes"></div>
-			<div id="tree" class="tree" role="tree" aria-label="Databases"></div>
+		<aside class="side" id="side">
+			<section class="side-top" id="structure" aria-label="Database structure">
+				<div class="side-head">
+					<span id="connLabel" class="conn-label"></span>
+					<button id="refreshBtn" class="icon-btn" type="button" title="Reload structure" aria-label="Reload structure"><svg class="ico"><use href="#i-refresh"/></svg></button>
+				</div>
+				<div class="side-filter"><input id="filter" type="search" placeholder="Filter tables, views and indexes" aria-label="Filter tables, views and indexes"></div>
+				<div id="tree" class="tree" role="tree" aria-label="Databases"></div>
+			</section>
+
+			<div class="split split-h" id="splitSide" role="separator" aria-orientation="horizontal" aria-label="Resize storage panel" tabindex="0"></div>
+
+			<section class="side-bottom" id="storagePanel" aria-label="S3 storage">
+				<div class="side-head">
+					<span class="conn-label">S3 storage</span>
+					<button id="addStorageBtn" class="add-btn" type="button"><svg class="ico"><use href="#i-plus"/></svg>Add storage</button>
+				</div>
+				<div id="storageList" class="storage-list"></div>
+			</section>
 		</aside>
 
 		<div class="split split-v" id="splitV" role="separator" aria-orientation="vertical" aria-label="Resize structure panel" tabindex="0"></div>
@@ -94,6 +110,80 @@
 		</main>
 	</div>
 </div>
+
+<!-- Storage form -->
+<dialog id="storageDialog" class="dialog" aria-labelledby="storageTitle">
+	<form id="storageForm" method="dialog" novalidate>
+		<h2 id="storageTitle">Add S3 storage</h2>
+		<div class="fields">
+			<div class="field span2">
+				<label for="stName">Name</label>
+				<input id="stName" name="name" autocomplete="off" spellcheck="false" placeholder="data-lake" required>
+				<span class="help">How you will call it. It cannot be changed later.</span>
+			</div>
+			<div class="field">
+				<label for="stBucket">Bucket</label>
+				<input id="stBucket" name="bucket" autocomplete="off" spellcheck="false" placeholder="my-company-data" required>
+			</div>
+			<div class="field">
+				<label for="stRegion">Region</label>
+				<input id="stRegion" name="region" autocomplete="off" spellcheck="false" placeholder="eu-west-1">
+			</div>
+			<div class="field span2">
+				<label for="stPrefix">Folder <span class="optional">optional</span></label>
+				<input id="stPrefix" name="pathPrefix" autocomplete="off" spellcheck="false" placeholder="raw/2026/">
+				<span class="help">Use only this folder of the bucket.</span>
+			</div>
+			<div class="field span2">
+				<label for="stKey">Access key ID</label>
+				<input id="stKey" name="accessKeyId" autocomplete="off" spellcheck="false" required>
+			</div>
+			<div class="field span2">
+				<label for="stSecret">Secret access key</label>
+				<input id="stSecret" name="secretAccessKey" type="password" autocomplete="new-password" spellcheck="false">
+				<span class="help" id="stSecretHelp">Stored encrypted. It is never shown again.</span>
+			</div>
+		</div>
+		<details id="stAdvanced" class="advanced">
+			<summary>Compatible services such as MinIO or Ceph</summary>
+			<div class="fields">
+				<div class="field span2">
+					<label for="stEndpoint">Endpoint <span class="optional">leave empty for AWS</span></label>
+					<input id="stEndpoint" name="endpoint" autocomplete="off" spellcheck="false" placeholder="minio.example.com:9000">
+				</div>
+				<div class="field">
+					<label for="stStyle">URL style</label>
+					<select id="stStyle" name="urlStyle">
+						<option value="">Automatic</option>
+						<option value="vhost">Virtual-hosted (bucket.host)</option>
+						<option value="path">Path (host/bucket)</option>
+					</select>
+				</div>
+				<div class="field check">
+					<label><input id="stSsl" name="useSsl" type="checkbox" checked> Use https</label>
+				</div>
+			</div>
+		</details>
+		<p id="storageError" class="form-error" role="alert" hidden></p>
+		<div class="dialog-actions">
+			<button type="button" class="btn" id="storageCancel">Cancel</button>
+			<button type="submit" class="run" id="storageSave">Save storage</button>
+		</div>
+	</form>
+</dialog>
+
+<!-- Remove storage -->
+<dialog id="removeDialog" class="dialog small" aria-labelledby="removeTitle">
+	<form id="removeForm" method="dialog">
+		<h2 id="removeTitle">Remove storage</h2>
+		<p id="removeText"></p>
+		<p id="removeError" class="form-error" role="alert" hidden></p>
+		<div class="dialog-actions">
+			<button type="button" class="btn" id="removeCancel">Keep it</button>
+			<button type="submit" class="btn danger" id="removeConfirm">Remove storage</button>
+		</div>
+	</form>
+</dialog>
 
 <script src="sql.js"></script>
 <script src="app.js"></script>

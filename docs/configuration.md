@@ -33,6 +33,7 @@ installation directory themselves.
 | `opencanard.db` | `opencanard.duckdb` | File name of the analytics database, inside `data/`. |
 | `metadatadb.db` | `metadata.duckdb` | File name of the metadata database, inside `metadata/`. |
 | `arrow.memory.mb` | `512` | Upper limit, in MB, of the Arrow memory allocator. |
+| `opencanard.storage.key` | *(not set)* | Passphrase that encrypts the S3 secret keys kept in the metadata database. When not set, a random key is created in `conf/storage.key` on the first start. |
 
 These properties are present in the sample file but **are not read by the server yet**:
 
@@ -88,3 +89,14 @@ the log ends up in `logs/`; if you start the JVM by other means, do it from the 
 - To query Parquet files or S3 data, use DuckDB's own functions from your SQL
   (for example `SELECT * FROM read_parquet('...')`). Configuring S3 credentials is not exposed
   through OpenCanard's properties.
+
+## Storage encryption key
+
+The secret access keys of the S3 storages are encrypted (AES-256-GCM) before they are written to
+`opencanard_storages`, so a copy of `metadata.duckdb` alone does not reveal them. The key is either the
+`opencanard.storage.key` property or, when that is empty, the file `conf/storage.key` (created with owner-only
+permissions on the first start).
+
+Back the key up with the metadata database. If it is lost or changed, the saved secrets cannot be decrypted and
+each storage has to be edited to enter its secret again. Anyone who can read both the key and the database can
+read the secrets.

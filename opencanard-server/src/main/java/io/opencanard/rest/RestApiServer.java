@@ -8,6 +8,7 @@ import org.apache.logging.log4j.Logger;
 import io.javalin.Javalin;
 import io.javalin.openapi.plugin.OpenApiPlugin;
 import io.javalin.openapi.plugin.swagger.SwaggerPlugin;
+import io.opencanard.storage.StorageService;
 import io.opencanard.user.UserConnections;
 import io.opencanard.user.UserService;
 
@@ -25,11 +26,12 @@ public class RestApiServer implements AutoCloseable {
 	private final int port;
 
 	public RestApiServer(Connection duckdb, Connection metadatadb, UserService userService, UserConnections userConnections,
-			int port) {
+			StorageService storageService, int port) {
 		this.port = port;
 
 		OpenCanardApiController controller = new OpenCanardApiController(duckdb, metadatadb, userService);
-		RestRoutes routes = new RestRoutes(controller, new ConsoleController(userConnections), new AuthMiddleware(controller));
+		RestRoutes routes = new RestRoutes(controller, new ConsoleController(userConnections),
+				new StorageController(storageService), new AuthMiddleware(controller));
 
 		this.app = Javalin.create(config -> {
 			config.registerPlugin(new OpenApiPlugin(openapi -> {

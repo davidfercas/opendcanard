@@ -11,10 +11,13 @@ public class RestRoutes {
 	private final OpenCanardApiController controller;
 	private final AuthMiddleware authMiddleware;
 	private final ConsoleController console;
+	private final StorageController storages;
 
-	public RestRoutes(OpenCanardApiController controller, ConsoleController console, AuthMiddleware authMiddleware) {
+	public RestRoutes(OpenCanardApiController controller, ConsoleController console, StorageController storages,
+			AuthMiddleware authMiddleware) {
 		this.controller = controller;
 		this.console = console;
+		this.storages = storages;
 		this.authMiddleware = authMiddleware;
 	}
 
@@ -60,6 +63,12 @@ public class RestRoutes {
 		routes.get("/api/console/catalog", console::catalog);
 		routes.get("/api/console/columns", console::columns);
 		routes.post("/api/console/query", console::query);
+
+		// S3 STORAGES of the logged-in user
+		routes.get("/api/console/storages", storages::list);
+		routes.post("/api/console/storages", storages::create);
+		routes.put("/api/console/storages/{name}", storages::update);
+		routes.delete("/api/console/storages/{name}", storages::delete);
 
 		// MANAGEMENT (admin role)
 		routes.get("/management/databases", controller::listDatabases);

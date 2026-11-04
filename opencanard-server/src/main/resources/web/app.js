@@ -14,7 +14,8 @@
 		selected: null,
 		result: null,
 		running: false,
-		renderId: 0
+		renderId: 0,
+		storages: []
 	};
 
 	// ---------- small helpers ----------
@@ -91,6 +92,7 @@
 
 	function showLogin(message) {
 		state.token = null;
+		state.storages = [];
 		tokenStore(null);
 		$('app').hidden = true;
 		$('login').hidden = false;
@@ -136,6 +138,7 @@
 			state.columns = {};
 			state.catalog = null;
 			$('sql').focus();
+			loadStorages();
 			return loadCatalog(true);
 		});
 	}
@@ -328,6 +331,149 @@
 		onEditorChange();
 		run();
 	}
+
+
+	// ---------- S3 storages ----------
+
+	function loadStorages() {
+		return api('/api/console/storages').then(function (list) {
+			state.storages = list;
+			renderStorages();
+		}, function (e) {
+			state.storages = [];
+			var box = $('storageList');
+			box.textContent = '';
+			box.appendChild(el('div', { class: 'storage-empty', text: e.message }));
+		});
+	}
+
+	function renderStorages() {
+		var box = $('storageList');
+		box.textContent = '';
+		if (state.storages.length === 0) {
+			var empty = el('div', { class: 'storage-empty' }, [
+				el('p', { text: 'No storage yet. Add an S3 bucket to give this account access to your files.' })
+			]);
+			box.appendChild(empty);
+			return;
+		}
+		state.storages.forEach(function (s) {
+			var edit = el('button', { type: 'button', class: 'icon-btn', title: 'Edit ' + s.name, 'aria-label': 'Edit ' + s.name }, [icon('i-edit')]);
+			var remove = el('button', { type: 'button', class: 'icon-btn', title: 'Remove ' + s.name, 'aria-label': 'Remove ' + s.name }, [icon('i-trash')]);
+			edit.addEventListener('click', function () { openStorageForm(s); });
+			remove.addEventListener('click', function () { openRemove(s); });
+			var where = s.url + (s.endpoint ? ' at ' + s.endpoint : '');
+			var row = el('div', { class: 'storage', title: where }, [
+				icon('i-bucket', 'kind'),
+				el('div', { class: 'text' }, [el('span', { class: 's-name', text: s.name }), el('span', { class: 's-url', text: s.url })]),
+				el('div', { class: 'actions' }, [edit, remove])
+			]);
+			row.addEventListener('dblclick', function () { openStorageForm(s); });
+			box.appendChild(row);
+		});
+	}
+
+	var dialog = $('storageDialog');
+	var editing = null;           // the storage being edited, or null when adding
+
+	function field(id) { return $(id); }
+
+	function showFormError(id, message) {
+		var box = $(id);
+		box.textContent = message || '';
+		box.hidden = !message;
+	}
+
+	function openStorageForm(storage) {
+		editing = storage || null;
+		var form = $('storageForm');
+		form.reset();
+		showFormError('storageError', '');
+		$('storageTitle').textContent = editing ? 'Edit ' + editing.name : 'Add S3 storage';
+		$('stName').value = editing ? editing.name : '';
+		$('stName').disabled = !!editing;
+		$('stBucket').value = editing ? editing.bucket : '';
+		$('stRegion').value = editing ? editing.region : '';
+		$('stPrefix').value = editing ? editing.pathPrefix : '';
+		$('stKey').value = editing ? editing.accessKeyId : '';
+		$('stSecret').value = '';
+		$('stSecret').required = !editing;
+		$('stSecret').placeholder = editing ? 'Leave empty to keep the current secret' : '';
+		$('stSecretHelp').textContent = editing ? 'A secret is stored. Type a new one only to replace it.' : 'Stored encrypted. It is never shown again.';
+		$('stEndpoint').value = editing && editing.endpoint ? editing.endpoint : '';
+		$('stStyle').value = editing && editing.endpoint ? editing.urlStyle : '';
+		$('stSsl').checked = editing ? editing.useSsl : true;
+		$('stAdvanced').open = !!(editing && editing.endpoint);
+		$('storageSave').disabled = false;
+		dialog.showModal();
+		(editing ? $('stBucket') : $('stName')).focus();
+	}
+
+	function readForm() {
+		var body = {
+			name: $('stName').value.trim(),
+			bucket: $('stBucket').value.trim(),
+			region: $('stRegion').value.trim(),
+			pathPrefix: $('stPrefix').value.trim(),
+			accessKeyId: $('stKey').value.trim(),
+			secretAccessKey: $('stSecret').value,
+			endpoint: $('stEndpoint').value.trim(),
+			urlStyle: $('stStyle').value,
+			useSsl: $('stSsl').checked
+		};
+		return body;
+	}
+
+	$('addStorageBtn').addEventListener('click', function () { openStorageForm(null); });
+	$('storageCancel').addEventListener('click', function () { dialog.close(); });
+
+	$('storageForm').addEventListener('submit', function (event) {
+		event.preventDefault();
+		showFormError('storageError', '');
+		var body = readForm();
+		var save = $('storageSave');
+		save.disabled = true;
+		var request = editing
+			? api('/api/console/storages/' + encodeURIComponent(editing.name), { method: 'PUT', body: body })
+			: api('/api/console/storages', { method: 'POST', body: body });
+		request.then(function () {
+			dialog.close();
+			return loadStorages();
+		}, function (e) {
+			showFormError('storageError', e.message);
+			if (/endpoint|url style/i.test(e.message)) $('stAdvanced').open = true;
+		}).then(function () { save.disabled = false; });
+	});
+
+	var removeDialog = $('removeDialog');
+	var removing = null;
+
+	function openRemove(storage) {
+		removing = storage;
+		showFormError('removeError', '');
+		$('removeText').textContent = 'Remove "' + storage.name + '" (' + storage.url + ')? Its saved keys are deleted. The files in the bucket are not touched.';
+		$('removeConfirm').disabled = false;
+		removeDialog.showModal();
+		$('removeCancel').focus();
+	}
+
+	$('removeCancel').addEventListener('click', function () { removeDialog.close(); });
+	$('removeForm').addEventListener('submit', function (event) {
+		event.preventDefault();
+		var confirm = $('removeConfirm');
+		confirm.disabled = true;
+		api('/api/console/storages/' + encodeURIComponent(removing.name), { method: 'DELETE' }).then(function () {
+			removeDialog.close();
+			return loadStorages();
+		}, function (e) {
+			showFormError('removeError', e.message);
+		}).then(function () { confirm.disabled = false; });
+	});
+
+	// A click on the dark backdrop closes a dialog
+	[dialog, removeDialog].forEach(function (d) {
+		d.addEventListener('mousedown', function (event) { if (event.target === d) d.close(); });
+	});
 
 	// ---------- editor ----------
 
@@ -525,6 +671,18 @@
 		var h = $('main').getBoundingClientRect().height;
 		$('main').style.setProperty('--editor-height', clamp(px, 110, Math.max(110, h - 140)) + 'px');
 	}
+
+	function setStructure(px) {
+		var h = $('side').getBoundingClientRect().height;
+		$('side').style.setProperty('--structure-height', clamp(px, 120, Math.max(120, h - 110)) + 'px');
+	}
+
+	drag($('splitSide'), function (event) { setStructure(event.clientY - $('side').getBoundingClientRect().top); });
+	$('splitSide').addEventListener('keydown', function (event) {
+		var height = $('structure').getBoundingClientRect().height;
+		if (event.key === 'ArrowUp') { setStructure(height - 24); event.preventDefault(); }
+		if (event.key === 'ArrowDown') { setStructure(height + 24); event.preventDefault(); }
+	});
 
 	drag($('splitV'), function (event) { setSide(event.clientX - $('workspace').getBoundingClientRect().left); });
 	drag($('splitH'), function (event) { setEditor(event.clientY - $('main').getBoundingClientRect().top); });

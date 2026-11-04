@@ -21,6 +21,24 @@ Open `http://localhost:8084/console/` (`/` redirects there) and sign in with an 
 - **Layout.** Drag the dividers (or focus one and use the arrow keys) to resize the panels. The theme button
   switches between light and dark; the first choice follows the system.
 
+## S3 storage
+
+The lower half of the left panel lists the S3 storages of the signed-in user. Each user manages their own list,
+admins included; nobody sees another user's storages. **Add storage** opens a form:
+
+| Field | Meaning |
+|-------|---------|
+| Name | Your label, unique among your storages. It cannot be changed afterwards. |
+| Bucket, Region | Where the data lives. Region is required for AWS S3. |
+| Folder | Optional. Only this folder of the bucket is used. |
+| Access key ID, Secret access key | The credentials. The secret is stored encrypted and is never shown again. |
+| Compatible services | Endpoint (`host:port`, no `http://`), URL style and https, for MinIO, Ceph or similar. Leave empty for AWS. |
+
+Use the pencil to edit a storage (leave the secret empty to keep the current one) and the bin to remove it.
+Removing a storage deletes its saved keys only, never the files in the bucket.
+
+This is the configuration side only: the console does not read from the buckets yet.
+
 ## Which database you work on
 
 The same rule as Arrow Flight and the JDBC driver:
@@ -52,6 +70,10 @@ All calls need `Authorization: Bearer <token>` (or Basic credentials) and appear
 | `GET /api/console/catalog` | databases, schemas, tables, views, indexes |
 | `GET /api/console/columns?catalog=&schema=&table=` | columns of a table or view |
 | `POST /api/console/query` | body `{"sql": "...", "maxRows": 1000}` |
+| `GET /api/console/storages` | your S3 storages (never the secret) |
+| `POST /api/console/storages` | add one |
+| `PUT /api/console/storages/{name}` | change one; an empty `secretAccessKey` keeps the stored secret |
+| `DELETE /api/console/storages/{name}` | remove one |
 
 `POST /api/console/query` answers:
 
@@ -61,6 +83,17 @@ All calls need `Authorization: Bearer <token>` (or Basic credentials) and appear
 ```
 
 SQL errors return HTTP 400 with `{"error": "..."}`; a user without a database gets 403.
+
+A storage looks like this in responses (and in the body of POST and PUT, plus `secretAccessKey`):
+
+```json
+{ "name": "data-lake", "bucket": "company-data", "region": "eu-west-1", "endpoint": null, "urlStyle": "vhost",
+  "useSsl": true, "pathPrefix": "raw/2026/", "accessKeyId": "AKIA...", "hasSecret": true,
+  "url": "s3://company-data/raw/2026/", "createdAt": "2026-11-04 10:00:00", "updatedAt": "2026-11-04 10:00:00" }
+```
+
+Storage calls answer 400 for an invalid field (the message says which), 404 for an unknown name and 409 for a
+name already in use.
 
 ## Files
 
