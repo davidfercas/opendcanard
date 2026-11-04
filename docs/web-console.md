@@ -39,8 +39,8 @@ Removing a storage deletes its saved keys only, never the files in the bucket.
 
 ### Reading files from a storage
 
-Every time you run a query (and every time a JDBC or Flight client connects), your storages are registered in
-DuckDB as temporary S3 secrets whose scope is `s3://bucket/folder/`. A path inside that scope uses the
+When you save, edit or remove a storage, and again every time you run a query or a JDBC or Flight client connects,
+your storages are registered in DuckDB as temporary S3 secrets whose scope is `s3://bucket/folder/`. A path inside that scope uses the
 endpoint, region, URL style and credentials of the storage:
 
 ```sql
@@ -51,6 +51,8 @@ SELECT * FROM read_csv_auto('s3://test/countries/countries.csv', all_varchar = t
   DuckDB's defaults, which means AWS, and fails with HTTP 403 for a bucket on MinIO.
 - The first use installs the DuckDB `httpfs` extension, so the server needs internet access once. Without it
   the query fails with a message naming the extension.
+- If DuckDB cannot register a saved storage (for example, `httpfs` cannot be downloaded), the storage is still
+  saved and a red notice above the list gives the reason.
 - Changes to a storage apply to the next query. DuckDB keeps secrets per database, so they are visible to
   every connection to that database: your own file, except for admins, who share the metadata database.
 - If the storage key changed and a secret cannot be decrypted, that storage is skipped and logged;

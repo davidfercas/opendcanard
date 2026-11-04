@@ -49,17 +49,7 @@ public class UserConnections {
 
 	/** A new connection to the database of the login. The caller must close it. */
 	public Connection open(String login) throws SQLException {
-		Connection conn;
-		if (isAdmin(login)) {
-			logger.debug("'{}' is an admin and uses the metadata database", login);
-			conn = ((DuckDBConnection) metadatadb).duplicate();
-		} else {
-			conn = userDatabases.connect(login);
-			if (conn == null) {
-				throw new NoDatabaseException("No database is registered for '" + login + "' in opencanard_databases");
-			}
-			logger.debug("'{}' uses its registered database", login);
-		}
+		Connection conn = openWithoutStorages(login);
 		try {
 			storages.apply(conn, login);
 		} catch (Exception e) {
@@ -67,6 +57,29 @@ public class UserConnections {
 			logger.warn("Cannot register the S3 storages of '{}': {}", login, e.getMessage());
 		}
 		return conn;
+	}
+
+	/**
+	 * Registers the S3 storages of the login in its database now, so they work from the next query on, and reports
+	 * why when that is not possible (for example, the DuckDB httpfs extension cannot be installed).
+	 */
+	public void registerStorages(String login) throws SQLException {
+		try (Connection conn = openWithoutStorages(login)) {
+			storages.apply(conn, login);
+		}
+	}
+
+	private Connection openWithoutStorages(String login) throws SQLException {
+		if (isAdmin(login)) {
+			logger.debug("'{}' is an admin and uses the metadata database", login);
+			return ((DuckDBConnection) metadatadb).duplicate();
+		}
+		Connection personal = userDatabases.connect(login);
+		if (personal == null) {
+			throw new NoDatabaseException("No database is registered for '" + login + "' in opencanard_databases");
+		}
+		logger.debug("'{}' uses its registered database", login);
+		return personal;
 	}
 
 	/** True when the login has the role {@code admin} in the metadata database. */

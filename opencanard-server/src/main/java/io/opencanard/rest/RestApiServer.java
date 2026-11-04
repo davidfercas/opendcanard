@@ -31,7 +31,7 @@ public class RestApiServer implements AutoCloseable {
 
 		OpenCanardApiController controller = new OpenCanardApiController(duckdb, metadatadb, userService);
 		RestRoutes routes = new RestRoutes(controller, new ConsoleController(userConnections),
-				new StorageController(storageService), new AuthMiddleware(controller));
+				new StorageController(storageService, userConnections), new AuthMiddleware(controller));
 
 		this.app = Javalin.create(config -> {
 			config.registerPlugin(new OpenApiPlugin(openapi -> {

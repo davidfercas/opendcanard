@@ -20,6 +20,7 @@ import io.javalin.openapi.OpenApiSecurity;
 import io.opencanard.storage.StorageConfig;
 import io.opencanard.storage.StorageRequest;
 import io.opencanard.storage.StorageService;
+import io.opencanard.user.UserConnections;
 
 /**
  * The S3 storages of the logged-in user ({@code /api/console/storages}). The secret access key can be sent but
@@ -31,9 +32,11 @@ public class StorageController {
 	private static final Logger logger = LogManager.getLogger(StorageController.class);
 
 	private final StorageService storages;
+	private final UserConnections connections;
 
-	public StorageController(StorageService storages) {
+	public StorageController(StorageService storages, UserConnections connections) {
 		this.storages = storages;
+		this.connections = connections;
 	}
 
 	private interface Call {
@@ -68,8 +71,9 @@ public class StorageController {
 			return;
 		}
 		handle(ctx, login -> {
+			Map<String, Object> out = describe(storages.create(login, body));
 			ctx.status(201);
-			ctx.json(describe(storages.create(login, body)));
+			ctx.json(withRegistration(login, out));
 		});
 	}
 
@@ -87,20 +91,46 @@ public class StorageController {
 		if (body == null) {
 			return;
 		}
-		handle(ctx, login -> ctx.json(describe(storages.update(login, ctx.pathParam("name"), body))));
+		handle(ctx, login -> ctx.json(withRegistration(login, describe(storages.update(login, ctx.pathParam("name"), body)))));
 	}
 
 	@OpenApi(path = "/api/console/storages/{name}", methods = HttpMethod.DELETE, summary = "Remove an S3 storage",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Storage" },
 			pathParams = { @OpenApiParam(name = "name", required = true) },
 			responses = { @OpenApiResponse(status = "204", description = "Removed"),
+					@OpenApiResponse(status = "200", description = "Removed, but DuckDB could not update its secrets: {\"warning\": \"...\"}"),
 					@OpenApiResponse(status = "401", description = "Missing or invalid credentials"),
 					@OpenApiResponse(status = "404", description = "The user has no storage with that name") })
 	public void delete(Context ctx) {
 		handle(ctx, login -> {
 			storages.delete(login, ctx.pathParam("name"));
-			ctx.status(204);
+			String warning = register(login);
+			if (warning == null) {
+				ctx.status(204);
+			} else {
+				ctx.status(200);
+				ctx.json(Map.of("warning", warning));
+			}
 		});
+	}
+
+	/** Makes the change effective in DuckDB right away; a failure is a warning, the change itself is saved. */
+	private Map<String, Object> withRegistration(String login, Map<String, Object> storage) {
+		String warning = register(login);
+		if (warning != null) {
+			storage.put("warning", warning);
+		}
+		return storage;
+	}
+
+	private String register(String login) {
+		try {
+			connections.registerStorages(login);
+			return null;
+		} catch (Exception e) {
+			logger.warn("Storage of '{}' saved, but not registered in DuckDB: {}", login, e.getMessage());
+			return "Saved, but DuckDB could not register it for queries: " + e.getMessage();
+		}
 	}
 
 	private void handle(Context ctx, Call call) {

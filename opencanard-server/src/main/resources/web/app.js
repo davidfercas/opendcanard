@@ -15,7 +15,8 @@
 		result: null,
 		running: false,
 		renderId: 0,
-		storages: []
+		storages: [],
+		storageWarning: null
 	};
 
 	// ---------- small helpers ----------
@@ -350,6 +351,9 @@
 	function renderStorages() {
 		var box = $('storageList');
 		box.textContent = '';
+		if (state.storageWarning) {
+			box.appendChild(el('p', { class: 'storage-warning', role: 'status', text: state.storageWarning }));
+		}
 		if (state.storages.length === 0) {
 			var empty = el('div', { class: 'storage-empty' }, [
 				el('p', { text: 'No storage yet. Add an S3 bucket to give this account access to your files.' })
@@ -437,7 +441,8 @@
 		var request = editing
 			? api('/api/console/storages/' + encodeURIComponent(editing.name), { method: 'PUT', body: body })
 			: api('/api/console/storages', { method: 'POST', body: body });
-		request.then(function () {
+		request.then(function (saved) {
+			state.storageWarning = saved && saved.warning ? saved.warning : null;
 			dialog.close();
 			return loadStorages();
 		}, function (e) {
@@ -463,7 +468,8 @@
 		event.preventDefault();
 		var confirm = $('removeConfirm');
 		confirm.disabled = true;
-		api('/api/console/storages/' + encodeURIComponent(removing.name), { method: 'DELETE' }).then(function () {
+		api('/api/console/storages/' + encodeURIComponent(removing.name), { method: 'DELETE' }).then(function (done) {
+			state.storageWarning = done && done.warning ? done.warning : null;
 			removeDialog.close();
 			return loadStorages();
 		}, function (e) {
