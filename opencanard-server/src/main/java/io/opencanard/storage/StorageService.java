@@ -146,7 +146,17 @@ public class StorageService {
 				}
 			}
 		}
-		applied.put(login, current);
+		Set<String> before = applied.put(login, current);
+		if (before == null || !before.equals(current)) {
+			StringBuilder scopes = new StringBuilder();
+			for (StorageConfig s : storages) {
+				if (current.contains(s.getName())) {
+					scopes.append(scopes.length() == 0 ? "" : ", ").append(StorageSecrets.scope(s));
+				}
+			}
+			logger.info("[storage] registered {} S3 storage(s) for '{}' on the connection: {}", current.size(), login,
+					scopes);
+		}
 	}
 
 	private static void loadHttpfs(Statement st) throws SQLException {
