@@ -219,11 +219,16 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		UserService userService = new UserService(this.metadatadb, this.userDatabases);
 		StorageService storageService;
 		try {
-			// key: property opencanard.storage.key, or the file conf/storage.key (created on first start)
-			storageService = new StorageService(this.metadatadb,
-					SecretBox.open(Config.get("opencanard.storage.key"), Paths.get(CONF_DIR, "storage.key")));
+			// key: env OPENCANARD_STORAGE_KEY, property opencanard.storage.key, or the file metadata/storage.key
+			// (created on first start; conf/storage.key of earlier versions is still honored)
+			String configuredKey = System.getenv("OPENCANARD_STORAGE_KEY");
+			if (configuredKey == null || configuredKey.isBlank()) {
+				configuredKey = Config.get("opencanard.storage.key");
+			}
+			storageService = new StorageService(this.metadatadb, SecretBox.open(configuredKey,
+					Paths.get(METADATA_DIR, "storage.key"), Paths.get(CONF_DIR, "storage.key")));
 		} catch (java.io.IOException e) {
-			throw new IllegalStateException("Cannot read or create the storage key " + Paths.get(CONF_DIR, "storage.key"), e);
+			throw new IllegalStateException("Cannot read or create the storage key in " + METADATA_DIR, e);
 		}
 		this.userConnections = new UserConnections(this.metadatadb, this.userDatabases, storageService);
 		this.restApi = new RestApiServer(this.duckdb, this.metadatadb, userService, this.userConnections,

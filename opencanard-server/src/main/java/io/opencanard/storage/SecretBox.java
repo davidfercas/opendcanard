@@ -22,8 +22,9 @@ import javax.crypto.spec.SecretKeySpec;
  * Stored form: {@code v1:} + Base64(12-byte nonce + ciphertext + tag). The <i>context</i> (for storages,
  * {@code login/name}) is authenticated with the data: a secret copied to another row does not decrypt.
  * <p>
- * The key comes from the property {@code opencanard.storage.key} when set, otherwise from the file
- * {@code conf/storage.key}, created with random content on first use. Without the key the secrets cannot be read.
+ * The key comes from, in this order: the setting {@code opencanard.storage.key} (property or the environment
+ * variable {@code OPENCANARD_STORAGE_KEY}); an existing key file; a new random key file, created on first use.
+ * Without the key the secrets cannot be read.
  */
 public final class SecretBox {
 
@@ -43,12 +44,16 @@ public final class SecretBox {
 	}
 
 	/**
-	 * @param configured value of {@code opencanard.storage.key}, may be null or blank
-	 * @param keyFile    where the generated key lives when nothing is configured
+	 * @param configured value of the key setting, may be null or blank
+	 * @param keyFile    the key file to use and, when nothing exists yet, to create. Put it on a persistent volume.
+	 * @param legacyFile an older place where a key may already exist (used when {@code keyFile} does not exist), or null
 	 */
-	public static SecretBox open(String configured, Path keyFile) throws IOException {
+	public static SecretBox open(String configured, Path keyFile, Path legacyFile) throws IOException {
 		if (configured != null && !configured.isBlank()) {
 			return new SecretBox(configured.getBytes(StandardCharsets.UTF_8));
+		}
+		if (!Files.exists(keyFile) && legacyFile != null && Files.exists(legacyFile)) {
+			return new SecretBox(Files.readAllBytes(legacyFile));
 		}
 		if (!Files.exists(keyFile)) {
 			byte[] fresh = new byte[32];

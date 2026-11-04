@@ -52,7 +52,7 @@ public class StorageController {
 		handle(ctx, login -> {
 			List<Map<String, Object>> out = new ArrayList<>();
 			for (StorageConfig s : storages.list(login)) {
-				out.add(describe(s));
+				out.add(describe(s, storages.isReadable(s)));
 			}
 			ctx.json(out);
 		});
@@ -71,7 +71,8 @@ public class StorageController {
 			return;
 		}
 		handle(ctx, login -> {
-			Map<String, Object> out = describe(storages.create(login, body));
+			StorageConfig created = storages.create(login, body);
+			Map<String, Object> out = describe(created, storages.isReadable(created));
 			ctx.status(201);
 			ctx.json(withRegistration(login, out));
 		});
@@ -91,7 +92,10 @@ public class StorageController {
 		if (body == null) {
 			return;
 		}
-		handle(ctx, login -> ctx.json(withRegistration(login, describe(storages.update(login, ctx.pathParam("name"), body)))));
+		handle(ctx, login -> {
+			StorageConfig updated = storages.update(login, ctx.pathParam("name"), body);
+			ctx.json(withRegistration(login, describe(updated, storages.isReadable(updated))));
+		});
 	}
 
 	@OpenApi(path = "/api/console/storages/{name}", methods = HttpMethod.DELETE, summary = "Remove an S3 storage",
@@ -163,7 +167,7 @@ public class StorageController {
 	}
 
 	/** What the API shows about a storage: everything but the secret. */
-	static Map<String, Object> describe(StorageConfig s) {
+	static Map<String, Object> describe(StorageConfig s, boolean secretReadable) {
 		Map<String, Object> m = new LinkedHashMap<>();
 		m.put("name", s.getName());
 		m.put("bucket", s.getBucket());
@@ -174,6 +178,7 @@ public class StorageController {
 		m.put("pathPrefix", s.getPathPrefix());
 		m.put("accessKeyId", s.getAccessKeyId());
 		m.put("hasSecret", true);
+		m.put("secretReadable", secretReadable);
 		m.put("url", s.url());
 		m.put("createdAt", s.getCreatedAt() == null ? null : s.getCreatedAt().toLocalDateTime().withNano(0).toString().replace('T', ' '));
 		m.put("updatedAt", s.getUpdatedAt() == null ? null : s.getUpdatedAt().toLocalDateTime().withNano(0).toString().replace('T', ' '));

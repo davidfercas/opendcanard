@@ -93,10 +93,18 @@ the log ends up in `logs/`; if you start the JVM by other means, do it from the 
 ## Storage encryption key
 
 The secret access keys of the S3 storages are encrypted (AES-256-GCM) before they are written to
-`opencanard_storages`, so a copy of `metadata.duckdb` alone does not reveal them. The key is either the
-`opencanard.storage.key` property or, when that is empty, the file `conf/storage.key` (created with owner-only
-permissions on the first start).
+`opencanard_storages`, so a copy of `metadata.duckdb` alone does not reveal them. The key is the first of these
+that exists:
 
-Back the key up with the metadata database. If it is lost or changed, the saved secrets cannot be decrypted and
-each storage has to be edited to enter its secret again. Anyone who can read both the key and the database can
-read the secrets.
+1. the environment variable `OPENCANARD_STORAGE_KEY`;
+2. the property `opencanard.storage.key` in `opencanard.properties`;
+3. the file `metadata/storage.key`, created with random content and owner-only permissions on the first start;
+4. the file `conf/storage.key` written by an earlier version, if `metadata/storage.key` does not exist.
+
+The key must survive restarts. Keeping it in `metadata/` does that, because that directory already holds the
+database (in Docker it is a volume). For a stronger separation, set the environment variable or the property and
+keep the value outside the data volume, for example in a secret manager.
+
+If the key is lost or changed, the saved secrets cannot be decrypted. The storage list then shows "Secret must
+be entered again" for each of them, queries fall back to AWS for those paths, and each storage has to be edited to
+type its secret again. Anyone who can read both the key and the database can read the secrets.

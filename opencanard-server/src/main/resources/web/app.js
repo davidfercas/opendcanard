@@ -369,7 +369,7 @@
 			var where = s.url + (s.endpoint ? ' at ' + s.endpoint : '');
 			var row = el('div', { class: 'storage', title: where }, [
 				icon('i-bucket', 'kind'),
-				el('div', { class: 'text' }, [el('span', { class: 's-name', text: s.name }), el('span', { class: 's-url', text: s.url })]),
+				el('div', { class: 'text' }, [el('span', { class: 's-name', text: s.name }), el('span', { class: 's-url' + (s.secretReadable === false ? ' bad' : ''), text: s.secretReadable === false ? 'Secret must be entered again' : s.url })]),
 				el('div', { class: 'actions' }, [edit, remove])
 			]);
 			row.addEventListener('dblclick', function () { openStorageForm(s); });
@@ -404,7 +404,7 @@
 		$('stSecret').value = '';
 		$('stSecret').required = !editing;
 		$('stSecret').placeholder = editing ? 'Leave empty to keep the current secret' : '';
-		$('stSecretHelp').textContent = editing ? 'A secret is stored. Type a new one only to replace it.' : 'Stored encrypted. It is never shown again.';
+		$('stSecretHelp').textContent = editing && editing.secretReadable === false ? 'The saved secret cannot be read any more. Type it again.' : editing ? 'A secret is stored. Type a new one only to replace it.' : 'Stored encrypted. It is never shown again.';
 		$('stEndpoint').value = editing && editing.endpoint ? editing.endpoint : '';
 		$('stStyle').value = editing && editing.endpoint ? editing.urlStyle : '';
 		$('stSsl').checked = editing ? editing.useSsl : true;

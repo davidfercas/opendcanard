@@ -77,6 +77,13 @@ public class StorageService {
 		StorageValidator.Clean clean = StorageValidator.validate(request, false);
 		try (Connection c = ((DuckDBConnection) metadatadb).duplicate()) {
 			requireDistinctScope(c, login, name, clean);
+			if (clean.secret == null) {
+				StorageConfig existing = repository.find(c, login, name);
+				if (existing != null && !isReadable(existing)) {
+					throw new IllegalArgumentException(
+							"The saved secret cannot be read any more because the storage key changed. Type the secret again");
+				}
+			}
 			String encrypted = clean.secret == null ? null : secrets.encrypt(clean.secret, context(login, name));
 			if (repository.update(c, login, name, clean, encrypted) == 0) {
 				throw notFound(name);
@@ -127,6 +134,7 @@ public class StorageService {
 			return;
 		}
 		Set<String> current = new HashSet<>();
+		List<String> unreadable = new java.util.ArrayList<>();
 		try (Statement st = target.createStatement()) {
 			if (!storages.isEmpty()) {
 				loadHttpfs(st);
@@ -137,6 +145,7 @@ public class StorageService {
 					plain = secrets.decrypt(s.getSecretEncrypted(), context(login, s.getName()));
 				} catch (IllegalStateException e) {
 					logger.warn("[storage] '{}' of '{}' skipped: {}", s.getName(), login, e.getMessage());
+					unreadable.add(s.getName());
 					continue;
 				}
 				st.execute(StorageSecrets.createSql(s, plain));
@@ -158,6 +167,20 @@ public class StorageService {
 			}
 			logger.info("[storage] registered {} S3 storage(s) for '{}' on the connection: {}", current.size(), login,
 					scopes);
+		}
+		if (!unreadable.isEmpty()) {
+			throw new SQLException("The secret of " + String.join(", ", unreadable)
+					+ " cannot be read because the storage key changed. Edit the storage and type the secret again");
+		}
+	}
+
+	/** False when the stored secret cannot be decrypted with the current storage key. */
+	public boolean isReadable(StorageConfig s) {
+		try {
+			secrets.decrypt(s.getSecretEncrypted(), context(s.getLogin(), s.getName()));
+			return true;
+		} catch (IllegalStateException e) {
+			return false;
 		}
 	}
 
