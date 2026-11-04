@@ -371,6 +371,7 @@
 			row.addEventListener('dblclick', function () { openStorageForm(s); });
 			box.appendChild(row);
 		});
+		box.appendChild(el('p', { class: 'storage-hint', text: 'Read files in SQL with s3://bucket/path, for example read_csv(\'s3://' + state.storages[0].bucket + '/file.csv\').' }));
 	}
 
 	var dialog = $('storageDialog');

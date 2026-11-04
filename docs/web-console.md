@@ -37,7 +37,24 @@ admins included; nobody sees another user's storages. **Add storage** opens a fo
 Use the pencil to edit a storage (leave the secret empty to keep the current one) and the bin to remove it.
 Removing a storage deletes its saved keys only, never the files in the bucket.
 
-This is the configuration side only: the console does not read from the buckets yet.
+### Reading files from a storage
+
+Every time you run a query (and every time a JDBC or Flight client connects), your storages are registered in
+DuckDB as temporary S3 secrets whose scope is `s3://bucket/folder/`. A path inside that scope uses the
+endpoint, region, URL style and credentials of the storage:
+
+```sql
+SELECT * FROM read_csv_auto('s3://test/countries/countries.csv', all_varchar = true);
+```
+
+- The path must start with the bucket (and the folder, if you set one). Anything outside the scope falls back to
+  DuckDB's defaults, which means AWS, and fails with HTTP 403 for a bucket on MinIO.
+- The first use installs the DuckDB `httpfs` extension, so the server needs internet access once. Without it
+  the query fails with a message naming the extension.
+- Changes to a storage apply to the next query. DuckDB keeps secrets per database, so they are visible to
+  every connection to that database: your own file, except for admins, who share the metadata database.
+- If the storage key changed and a secret cannot be decrypted, that storage is skipped and logged;
+  edit it and enter the secret again.
 
 ## Which database you work on
 

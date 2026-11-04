@@ -131,6 +131,7 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
 .storage .actions { display: flex; gap: 2px; opacity: 0; }
 .storage:hover .actions, .storage:focus-within .actions { opacity: 1; }
 @media (hover: none) { .storage .actions { opacity: 1; } }
+.storage-hint { margin: 8px 12px 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .storage-empty { padding: 4px 12px 12px; color: var(--muted); font-size: 13px; }
 .storage-empty p { margin: 0 0 10px; }
 

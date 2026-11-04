@@ -2,7 +2,12 @@ package io.opencanard.storage;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -40,6 +45,8 @@ public class StorageService {
 	private final Connection metadatadb;
 	private final SecretBox secrets;
 	private final StorageRepository repository = new StorageRepository();
+	/** Secrets created in DuckDB for each login, so the ones of removed storages can be dropped. */
+	private final Map<String, Set<String>> applied = new ConcurrentHashMap<>();
 
 	public StorageService(Connection metadatadb, SecretBox secrets) {
 		this.metadatadb = metadatadb;
@@ -99,6 +106,56 @@ public class StorageService {
 				throw notFound(name);
 			}
 			return secrets.decrypt(config.getSecretEncrypted(), context(login, name));
+		}
+	}
+
+	/**
+	 * Makes the storages of {@code login} usable from SQL on {@code target}: one temporary DuckDB S3 secret per
+	 * storage (see {@link StorageSecrets}). Secrets of storages removed since the last call are dropped.
+	 * <p>
+	 * DuckDB keeps secrets per database, not per connection, so they are visible to every connection to the
+	 * same database; that is the user's own file, except for admins, who share the metadata database.
+	 * <p>
+	 * Needs the DuckDB {@code httpfs} extension, which is installed on first use (internet access required).
+	 */
+	public void apply(Connection target, String login) throws SQLException {
+		List<StorageConfig> storages = list(login);
+		Set<String> previous = applied.getOrDefault(login, Set.of());
+		if (storages.isEmpty() && previous.isEmpty()) {
+			return;
+		}
+		Set<String> current = new HashSet<>();
+		try (Statement st = target.createStatement()) {
+			if (!storages.isEmpty()) {
+				loadHttpfs(st);
+			}
+			for (StorageConfig s : storages) {
+				String plain;
+				try {
+					plain = secrets.decrypt(s.getSecretEncrypted(), context(login, s.getName()));
+				} catch (IllegalStateException e) {
+					logger.warn("[storage] '{}' of '{}' skipped: {}", s.getName(), login, e.getMessage());
+					continue;
+				}
+				st.execute(StorageSecrets.createSql(s, plain));
+				current.add(s.getName());
+			}
+			for (String gone : previous) {
+				if (!current.contains(gone)) {
+					st.execute(StorageSecrets.dropSql(login, gone));
+				}
+			}
+		}
+		applied.put(login, current);
+	}
+
+	private static void loadHttpfs(Statement st) throws SQLException {
+		try {
+			st.execute("LOAD httpfs");
+		} catch (SQLException notInstalled) {
+			logger.info("[storage] installing the DuckDB httpfs extension");
+			st.execute("INSTALL httpfs");
+			st.execute("LOAD httpfs");
 		}
 	}
 
