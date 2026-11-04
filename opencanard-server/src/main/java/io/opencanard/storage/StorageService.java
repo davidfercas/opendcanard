@@ -65,6 +65,7 @@ public class StorageService {
 			if (repository.find(c, login, clean.name) != null) {
 				throw new AlreadyExistsException("You already have a storage named '" + clean.name + "'");
 			}
+			requireDistinctScope(c, login, clean.name, clean);
 			repository.insert(c, login, clean, secrets.encrypt(clean.secret, context(login, clean.name)));
 			logger.info("[storage] '{}' added storage '{}' ({})", login, clean.name, clean.bucket);
 			return repository.find(c, login, clean.name);
@@ -75,6 +76,7 @@ public class StorageService {
 		requireName(name);
 		StorageValidator.Clean clean = StorageValidator.validate(request, false);
 		try (Connection c = ((DuckDBConnection) metadatadb).duplicate()) {
+			requireDistinctScope(c, login, name, clean);
 			String encrypted = clean.secret == null ? null : secrets.encrypt(clean.secret, context(login, name));
 			if (repository.update(c, login, name, clean, encrypted) == 0) {
 				throw notFound(name);
@@ -166,6 +168,21 @@ public class StorageService {
 			logger.info("[storage] installing the DuckDB httpfs extension");
 			st.execute("INSTALL httpfs");
 			st.execute("LOAD httpfs");
+		}
+	}
+
+	/**
+	 * A query path says only {@code s3://bucket/folder/...}, so two storages of one user with the same bucket and
+	 * folder could not be told apart. A folder inside another storage's scope is fine: the longest scope wins.
+	 */
+	private void requireDistinctScope(Connection c, String login, String name, StorageValidator.Clean clean)
+			throws SQLException {
+		String scope = StorageSecrets.scope(clean.bucket, clean.pathPrefix);
+		for (StorageConfig other : repository.list(c, login)) {
+			if (!other.getName().equals(name) && StorageSecrets.scope(other).equals(scope)) {
+				throw new IllegalArgumentException("Your storage '" + other.getName() + "' already uses " + scope
+						+ ". A query path could not tell them apart: use a different bucket or folder");
+			}
 		}
 	}
 

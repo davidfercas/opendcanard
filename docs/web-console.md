@@ -47,6 +47,9 @@ endpoint, region, URL style and credentials of the storage:
 SELECT * FROM read_csv_auto('s3://test/countries/countries.csv', all_varchar = true);
 ```
 
+- You can have several storages. Each one is its own secret and the longest matching scope wins, so a folder
+  storage can sit inside a whole-bucket one. Two storages cannot share the same bucket and folder, because a path
+  could not tell them apart; the form refuses it.
 - The path must start with the bucket (and the folder, if you set one). Anything outside the scope falls back to
   DuckDB's defaults, which means AWS, and fails with HTTP 403 for a bucket on MinIO.
 - The first use installs the DuckDB `httpfs` extension, so the server needs internet access once. Without it

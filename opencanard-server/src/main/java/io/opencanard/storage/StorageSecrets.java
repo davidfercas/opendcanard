@@ -17,7 +17,11 @@ public final class StorageSecrets {
 
 	/** {@code s3://bucket} or {@code s3://bucket/folder/} (DuckDB takes one string as scope). */
 	public static String scope(StorageConfig s) {
-		return "s3://" + s.getBucket() + (s.getPathPrefix().isEmpty() ? "" : "/" + s.getPathPrefix());
+		return scope(s.getBucket(), s.getPathPrefix());
+	}
+
+	public static String scope(String bucket, String pathPrefix) {
+		return "s3://" + bucket + (pathPrefix.isEmpty() ? "" : "/" + pathPrefix);
 	}
 
 	public static String createSql(StorageConfig s, String plainSecret) {
