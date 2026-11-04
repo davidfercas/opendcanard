@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenCanard console</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+	<symbol id="i-chevron" viewBox="0 0 16 16"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+	<symbol id="i-db" viewBox="0 0 16 16"><ellipse cx="8" cy="4" rx="5" ry="2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+	<symbol id="i-schema" viewBox="0 0 16 16"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 1.8h5A1.5 1.5 0 0 1 14 6.3v5.2a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></symbol>
+	<symbol id="i-table" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2 6.5h12M6.5 6.5V13" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+	<symbol id="i-view" viewBox="0 0 16 16"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+	<symbol id="i-index" viewBox="0 0 16 16"><path d="M3 4h10M3 8h7M3 12h4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+	<symbol id="i-column" viewBox="0 0 16 16"><rect x="5.5" y="2.5" width="5" height="11" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+	<symbol id="i-key" viewBox="0 0 16 16"><circle cx="5" cy="8" r="2.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M7.5 8H14M11.5 8v2.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></symbol>
+	<symbol id="i-refresh" viewBox="0 0 16 16"><path d="M13 3.5V7H9.5M3 12.5V9h3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.6 7A5 5 0 0 0 4 5M3.4 9A5 5 0 0 0 12 11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+	<symbol id="i-play" viewBox="0 0 16 16"><path d="M4.5 2.8v10.4L13 8z" fill="currentColor"/></symbol>
+	<symbol id="i-theme" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 2.8v10.4A5.2 5.2 0 0 0 8 2.8z" fill="currentColor"/></symbol>
+</svg>
+
+<!-- Sign in -->
+<main id="login" class="login" hidden>
+	<form id="loginForm" class="login-box" autocomplete="on">
+		<img src="logo.png" alt="" width="56" height="56" class="login-logo">
+		<h1>Sign in to OpenCanard</h1>
+		<label for="user">User name</label>
+		<input id="user" name="username" autocomplete="username" required autofocus>
+		<label for="pass">Password</label>
+		<input id="pass" name="password" type="password" autocomplete="current-password" required>
+		<p id="loginError" class="form-error" role="alert" hidden></p>
+		<button type="submit" class="run wide">Sign in</button>
+	</form>
+</main>
+
+<!-- Console -->
+<div id="app" class="app" hidden>
+	<header class="bar">
+		<img src="logo.png" alt="" width="28" height="28" class="bar-logo">
+		<span class="bar-title">OpenCanard</span>
+		<span class="bar-spacer"></span>
+		<span id="who" class="bar-who"></span>
+		<button id="themeBtn" class="bar-btn" type="button" title="Switch light or dark theme" aria-label="Switch light or dark theme"><svg class="ico"><use href="#i-theme"/></svg></button>
+		<button id="logoutBtn" class="bar-btn text" type="button">Sign out</button>
+	</header>
+
+	<div class="workspace" id="workspace">
+		<aside class="side" id="side" aria-label="Database structure">
+			<div class="side-head">
+				<span id="connLabel" class="conn-label"></span>
+				<button id="refreshBtn" class="icon-btn" type="button" title="Reload structure" aria-label="Reload structure"><svg class="ico"><use href="#i-refresh"/></svg></button>
+			</div>
+			<div class="side-filter"><input id="filter" type="search" placeholder="Filter tables, views and indexes" aria-label="Filter tables, views and indexes"></div>
+			<div id="tree" class="tree" role="tree" aria-label="Databases"></div>
+		</aside>
+
+		<div class="split split-v" id="splitV" role="separator" aria-orientation="vertical" aria-label="Resize structure panel" tabindex="0"></div>
+
+		<main class="main" id="main">
+			<section class="editor-wrap" id="editorWrap" aria-label="SQL editor">
+				<div class="toolbar">
+					<button id="runBtn" class="run" type="button"><svg class="ico"><use href="#i-play"/></svg>Run</button>
+					<span class="hint"><kbd>Ctrl</kbd> <kbd>Enter</kbd> runs the selection, or everything</span>
+					<span class="bar-spacer"></span>
+					<label for="maxRows" class="inline-label">Row limit</label>
+					<select id="maxRows">
+						<option value="100">100</option>
+						<option value="1000" selected>1,000</option>
+						<option value="10000">10,000</option>
+						<option value="100000">100,000</option>
+					</select>
+				</div>
+				<div class="editor">
+					<pre id="hl" class="editor-layer" aria-hidden="true"><code></code></pre>
+					<textarea id="sql" class="editor-layer" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="SQL" placeholder="Write SQL here, for example: SELECT * FROM information_schema.tables;"></textarea>
+				</div>
+			</section>
+
+			<div class="split split-h" id="splitH" role="separator" aria-orientation="horizontal" aria-label="Resize editor" tabindex="0"></div>
+
+			<section class="results" id="results" aria-label="Result" aria-live="polite">
+				<div class="result-head">
+					<span id="resultStatus" class="result-status">Nothing run yet</span>
+					<span class="bar-spacer"></span>
+					<button id="copyBtn" class="link-btn" type="button" hidden>Copy as CSV</button>
+					<button id="csvBtn" class="link-btn" type="button" hidden>Download CSV</button>
+				</div>
+				<div id="resultBody" class="result-body"></div>
+			</section>
+		</main>
+	</div>
+</div>
+
+<script src="sql.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
