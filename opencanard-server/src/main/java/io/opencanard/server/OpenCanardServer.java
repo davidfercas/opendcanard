@@ -52,6 +52,7 @@ import io.opencanard.storage.StorageService;
 import io.opencanard.user.UserConnections;
 import io.opencanard.user.UserDatabases;
 import io.opencanard.user.UserService;
+import io.opencanard.query.RunningQueries;
 import io.opencanard.util.DuckDBArrowUtil;
 
 public class OpenCanardServer implements FlightProducer, AutoCloseable {
@@ -64,6 +65,8 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	// One DuckDB file per user created through the API: <data.dir>/users/<login>.duckdb
 	private final UserDatabases userDatabases;
 	private final UserConnections userConnections;
+	// Queries running now, from Flight and the web console, so they can be listed and cancelled
+	private final RunningQueries runningQueries = new RunningQueries();
 	
 	
 	
@@ -232,7 +235,7 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		}
 		this.userConnections = new UserConnections(this.metadatadb, this.userDatabases, storageService);
 		this.restApi = new RestApiServer(this.duckdb, this.metadatadb, userService, this.userConnections,
-				storageService, Config.getInt("opencanard.rest.port"));
+				storageService, this.runningQueries, Config.getInt("opencanard.rest.port"));
 	}
 
 	/**
@@ -423,6 +426,11 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		return userConnections.open(context.peerIdentity());
 	}
 
+	/** A query stopped through {@link RunningQueries#cancel} (SQLSTATE 57014, "query canceled"). */
+	private static boolean isCancelled(Exception e) {
+		return e instanceof SQLException && "57014".equals(((SQLException) e).getSQLState());
+	}
+
 	// ============================
 	// FlightProducer interface
 	// ============================
@@ -438,7 +446,15 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		String sql = new String(descriptor.getCommand(), StandardCharsets.UTF_8);
 
 		try (Connection conn = connectionFor(context)) {
-			DuckDBArrowUtil.Outcome outcome = DuckDBArrowUtil.run(conn, sql);
+			DuckDBArrowUtil.Outcome outcome;
+			// finish() runs before the connection is closed: a cancel must never reach a closed connection
+			RunningQueries.Query query = runningQueries.start(context.peerIdentity(), RunningQueries.Source.FLIGHT,
+					sql, null);
+			try {
+				outcome = DuckDBArrowUtil.run(conn, sql, query);
+			} finally {
+				runningQueries.finish(query);
+			}
 			if (!outcome.returnsRows()) {
 				// CREATE / INSERT / UPDATE / DELETE...: already executed, nothing to stream. No endpoints and
 				// the number of affected rows in "records" tell the client it is an update.
@@ -451,6 +467,9 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 			return new FlightInfo(outcome.getSchema(), descriptor,
 					Collections.singletonList(new FlightEndpoint(ticket, server.getLocation())), -1, -1);
 		} catch (Exception e) {
+			if (isCancelled(e)) {
+				throw CallStatus.CANCELLED.withDescription(e.getMessage()).toRuntimeException();
+			}
 			logger.error(e);
 			throw CallStatus.INTERNAL.withCause(e).withDescription(e.getMessage()).toRuntimeException();
 		}
@@ -460,8 +479,18 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	public void getStream(CallContext context, Ticket ticket, ServerStreamListener listener) {
 		String sql = new String(ticket.getBytes(), StandardCharsets.UTF_8);
 		try (Connection conn = connectionFor(context)) {
-			DuckDBArrowUtil.streamQuery(conn, sql, listener);
+			RunningQueries.Query query = runningQueries.start(context.peerIdentity(), RunningQueries.Source.FLIGHT,
+					sql, null);
+			try {
+				DuckDBArrowUtil.streamQuery(conn, sql, listener, query);
+			} finally {
+				runningQueries.finish(query);
+			}
 		} catch (Exception e) {
+			if (isCancelled(e)) {
+				listener.error(CallStatus.CANCELLED.withDescription(e.getMessage()).toRuntimeException());
+				return;
+			}
 			logger.error(e);
 			listener.error(CallStatus.INTERNAL.withCause(e).withDescription(e.getMessage()).toRuntimeException());
 		}

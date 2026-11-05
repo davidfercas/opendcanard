@@ -13,6 +13,13 @@ Open `http://localhost:8084/console/` (`/` redirects there) and sign in with an 
 - **Run SQL.** Type in the editor and press `Ctrl+Enter` (`Cmd+Enter` on macOS) or **Run**. If text is
   selected, only the selection runs. Several statements separated by `;` run in order and the result of the
   last one is shown; if one fails, the ones before it have already run.
+- **Kill a query.** While a query runs, **Kill** appears next to **Run** and stops it. The result panel then
+  says *Cancelled*. In a script, the statements that ran before the killed one are not undone, and the ones
+  after it do not run.
+- **See the running queries.** **Running queries** opens a list of the queries that have not finished yet,
+  with who started them, from where (the console or Arrow Flight, which includes Python, JDBC and DBeaver),
+  when, for how long and their SQL. It refreshes every 2 seconds and has a **Kill** button on each row.
+  A normal user sees only their own queries; an **admin sees and can kill the queries of every user**.
 - **Open a table.** Double-click it, or use the play button that appears on the row, to run
   `SELECT * FROM schema.table LIMIT 100`.
 - **Read the results.** Column types are shown under the names, `NULL` is distinct from empty text,
@@ -97,7 +104,10 @@ user for everyday queries.
 
 - At most 1,000 rows come back by default. The **Row limit** list raises it to 100,000. Longer text is cut
   at 100,000 characters per cell; `BIGINT` values beyond 2^53 and `DECIMAL` values are sent as text so no digit is lost.
-- A query cannot be cancelled once started.
+- Killing interrupts DuckDB, which stops at its next check. That is almost immediate for scans and joins,
+  but a slow S3 request already in progress can finish first.
+- Arrow Flight runs each `SELECT` twice (once to get the schema, once to stream it), so a Flight query can
+  show up twice in **Running queries**, one after the other.
 - The session is a JWT valid for one hour, kept in the tab's `sessionStorage`. After it expires the
   console asks you to sign in again.
 
@@ -110,7 +120,9 @@ All calls need `Authorization: Bearer <token>` (or Basic credentials) and appear
 | `GET /api/console/session` | login, whether it is an admin, which database |
 | `GET /api/console/catalog` | databases, schemas, tables, views, indexes |
 | `GET /api/console/columns?catalog=&schema=&table=` | columns of a table or view |
-| `POST /api/console/query` | body `{"sql": "...", "maxRows": 1000}` |
+| `POST /api/console/query` | body `{"sql": "...", "maxRows": 1000, "queryId": "..."}`; `queryId` is optional (8 to 64 letters, digits or dashes) and lets the browser kill the query before the answer arrives |
+| `GET /api/console/queries` | running queries: `{"allUsers": false, "queries": [{"id", "user", "source", "sql", "startedAt", "elapsedMs", "state"}]}`; `state` is `running` or `cancelling`. Admins get every user's queries |
+| `POST /api/console/queries/{id}/cancel` | kill a query: 202 when sent, 404 when it is not running any more or belongs to another user (admins can kill any) |
 | `GET /api/console/storages` | your S3 storages (never the secret) |
 | `POST /api/console/storages` | add one |
 | `PUT /api/console/storages/{name}` | change one; an empty `secretAccessKey` keeps the stored secret |
@@ -125,7 +137,9 @@ All calls need `Authorization: Bearer <token>` (or Basic credentials) and appear
   "updateCount": -1, "statements": 1, "message": "1 row", "elapsedMs": 3 }
 ```
 
-SQL errors return HTTP 400 with `{"error": "..."}`; a user without a database gets 403.
+SQL errors return HTTP 400 with `{"error": "..."}`; a killed query returns 400 with
+`{"error": "The query was cancelled.", "cancelled": true}`; a user without a database gets 403. Arrow Flight
+clients get the status `CANCELLED` for a killed query.
 
 A storage looks like this in responses (and in the body of POST and PUT, plus `secretAccessKey`):
 

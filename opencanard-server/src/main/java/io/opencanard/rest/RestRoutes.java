@@ -63,6 +63,8 @@ public class RestRoutes {
 		routes.get("/api/console/catalog", console::catalog);
 		routes.get("/api/console/columns", console::columns);
 		routes.post("/api/console/query", console::query);
+		routes.get("/api/console/queries", console::runningQueries);
+		routes.post("/api/console/queries/{id}/cancel", console::cancelQuery);
 
 		// S3 STORAGES of the logged-in user
 		routes.get("/api/console/storages", storages::list);

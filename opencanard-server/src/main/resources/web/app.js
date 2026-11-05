@@ -14,6 +14,7 @@
 		selected: null,
 		result: null,
 		running: false,
+		queryId: null,            // id of the query this tab is running, to kill it
 		renderId: 0,
 		storages: [],
 		storageWarning: null,
@@ -82,7 +83,10 @@
 				}
 				if (!res.ok) {
 					var message = (data && (data.error || data.title)) || text || res.statusText;
-					throw new Error(message);
+					var error = new Error(message);
+					error.status = res.status;
+					error.data = data;
+					throw error;
 				}
 				return data;
 			});
@@ -99,6 +103,7 @@
 		state.bucket = {};
 		state.s3open = new Set();
 		tokenStore(null);
+		if ($('queriesDialog').open) $('queriesDialog').close(); // also stops its refresh timer
 		$('app').hidden = true;
 		$('login').hidden = false;
 		var err = $('loginError');
@@ -648,6 +653,43 @@
 
 	function runQuery() { run(); }
 
+	/** Random id for a query, so it can be killed before its answer arrives (crypto.randomUUID needs https). */
+	function newQueryId() {
+		var bytes = new Uint8Array(16);
+		window.crypto.getRandomValues(bytes);
+		var hex = Array.prototype.map.call(bytes, function (b) { return (b < 16 ? '0' : '') + b.toString(16); }).join('');
+		return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
+	}
+
+	function setRunning(on) {
+		state.running = on;
+		$('runBtn').disabled = on;
+		var kill = $('killBtn');
+		kill.hidden = !on;
+		kill.disabled = false;
+		kill.lastChild.textContent = 'Kill';
+	}
+
+	function killQuery(id) {
+		return api('/api/console/queries/' + encodeURIComponent(id) + '/cancel', { method: 'POST' });
+	}
+
+	$('killBtn').addEventListener('click', function () {
+		if (!state.running || !state.queryId) return;
+		var kill = $('killBtn');
+		kill.disabled = true;
+		kill.lastChild.textContent = 'Killing…';
+		setStatus('Cancelling…');
+		killQuery(state.queryId).catch(function (e) {
+			// 404: it finished in the meantime, its result is on its way
+			if (e.status !== 404) {
+				kill.disabled = false;
+				kill.lastChild.textContent = 'Kill';
+				setStatus('Running…', ' (could not cancel: ' + e.message + ')');
+			}
+		});
+	});
+
 	function run() {
 		if (state.running) return;
 		var text = sqlBox.value;
@@ -658,12 +700,13 @@
 			return;
 		}
 
-		state.running = true;
-		$('runBtn').disabled = true;
+		var queryId = newQueryId();
+		state.queryId = queryId;
+		setRunning(true);
 		setStatus('Running…');
 		var started = performance.now();
 
-		api('/api/console/query', { method: 'POST', body: { sql: sql, maxRows: parseInt($('maxRows').value, 10) } })
+		api('/api/console/query', { method: 'POST', body: { sql: sql, maxRows: parseInt($('maxRows').value, 10), queryId: queryId } })
 			.then(function (result) {
 				result.clientMs = Math.round(performance.now() - started);
 				state.result = result;
@@ -672,11 +715,12 @@
 					loadCatalog(false); // the script may have changed the structure
 				}
 			}, function (e) {
-				showError(e.message);
+				if (e.data && e.data.cancelled) showCancelled(e.message, /;\s*\S/.test(sql)); // more than one statement
+				else showError(e.message);
 			})
 			.then(function () {
-				state.running = false;
-				$('runBtn').disabled = false;
+				state.queryId = null;
+				setRunning(false);
 			});
 	}
 
@@ -700,6 +744,128 @@
 		body.textContent = '';
 		body.appendChild(el('div', { class: 'error-box', role: 'alert', text: message }));
 	}
+
+	function showCancelled(message, script) {
+		state.result = null;
+		state.renderId++;
+		setStatus('Cancelled');
+		$('copyBtn').hidden = true;
+		$('csvBtn').hidden = true;
+		var body = $('resultBody');
+		body.textContent = '';
+		body.appendChild(el('div', { class: 'cancel-box', role: 'status', text: message + (script ? ' The statements of the script that ran before it are not undone.' : '') }));
+	}
+
+	// ---------- running queries ----------
+
+	var queriesDialog = $('queriesDialog');
+	var queriesTimer = null;
+	var killing = new Set();       // ids whose Kill was clicked in the popup
+
+	function formatDuration(ms) {
+		var s = Math.floor(ms / 1000);
+		if (s < 60) return (ms < 10000 ? (ms / 1000).toFixed(1) : String(s)) + ' s';
+		var m = Math.floor(s / 60);
+		if (m < 60) return m + ' min ' + (s % 60) + ' s';
+		return Math.floor(m / 60) + ' h ' + (m % 60) + ' min';
+	}
+
+	function formatTime(iso) {
+		var d = new Date(iso);
+		return isNaN(d) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+	}
+
+	function loadQueries() {
+		var btn = $('queriesRefresh');
+		btn.classList.add('busy');
+		return api('/api/console/queries').then(function (r) {
+			showFormError('queriesError', '');
+			renderQueries(r);
+		}, function (e) {
+			showFormError('queriesError', e.message);
+		}).then(function () { btn.classList.remove('busy'); });
+	}
+
+	function renderQueries(r) {
+		var box = $('queriesList');
+		var focused = document.activeElement && box.contains(document.activeElement) ? document.activeElement.getAttribute('data-id') : null;
+		$('queriesScope').textContent = r.allUsers ? 'All users (you are an admin)' : 'Your queries';
+		box.textContent = '';
+		var live = new Set(r.queries.map(function (q) { return q.id; }));
+		killing.forEach(function (id) { if (!live.has(id)) killing.delete(id); });
+
+		if (r.queries.length === 0) {
+			box.appendChild(el('div', { class: 'queries-empty', text: r.allUsers ? 'No query is running on the server.' : 'You have no query running.' }));
+			return;
+		}
+
+		var head = el('tr', {}, []);
+		var cols = (r.allUsers ? [['User', 'w-user']] : []).concat([['Source', 'w-source'], ['Started', 'w-time'],
+			['Running for', 'w-time'], ['SQL', ''], ['', 'w-action']]);
+		cols.forEach(function (c) {
+			var th = el('th', { text: c[0] });
+			if (c[1]) th.className = c[1];
+			if (!c[0]) th.setAttribute('aria-label', 'Kill');
+			head.appendChild(th);
+		});
+		var tbody = el('tbody');
+		r.queries.forEach(function (q) {
+			var mine = q.id === state.queryId;
+			var tr = el('tr', { class: q.state === 'cancelling' ? 'is-cancelling' : '' });
+			if (r.allUsers) tr.appendChild(el('td', { class: 'q-user', text: q.user }));
+			var source = el('td', { class: 'q-source', text: q.source });
+			if (mine) source.appendChild(el('span', { class: 'q-tag', text: 'this tab' }));
+			tr.appendChild(source);
+			tr.appendChild(el('td', { class: 'q-time', text: formatTime(q.startedAt) }));
+			tr.appendChild(el('td', { class: 'q-time num', text: formatDuration(q.elapsedMs) }));
+			var sqlText = q.sql.replace(/\s+/g, ' ').trim();
+			tr.appendChild(el('td', { class: 'q-sql', title: q.sql, text: sqlText }));
+			var pending = q.state === 'cancelling' || killing.has(q.id);
+			var kill = el('button', { type: 'button', class: 'btn kill small', 'data-id': q.id,
+				'aria-label': 'Kill the query of ' + q.user + ' started at ' + formatTime(q.startedAt) }, [icon('i-stop'), document.createTextNode(pending ? 'Killing…' : 'Kill')]);
+			kill.disabled = pending;
+			kill.addEventListener('click', function () {
+				killing.add(q.id);
+				kill.disabled = true;
+				kill.lastChild.textContent = 'Killing…';
+				if (mine) setStatus('Cancelling…');
+				killQuery(q.id).then(loadQueries, function (e) {
+					killing.delete(q.id);
+					if (e.status === 404) { loadQueries(); return; } // it finished meanwhile
+					showFormError('queriesError', e.message);
+					kill.disabled = false;
+					kill.lastChild.textContent = 'Kill';
+				});
+			});
+			tr.appendChild(el('td', { class: 'q-action' }, [kill]));
+			tbody.appendChild(tr);
+		});
+		box.appendChild(el('table', { class: 'grid queries' }, [el('thead', {}, [head]), tbody]));
+		if (focused) {
+			var again = box.querySelector('[data-id="' + cssEscape(focused) + '"]');
+			if (again) again.focus();
+		}
+	}
+
+	function stopQueriesTimer() {
+		if (queriesTimer) clearInterval(queriesTimer);
+		queriesTimer = null;
+	}
+
+	$('queriesBtn').addEventListener('click', function () {
+		$('queriesList').textContent = '';
+		$('queriesList').appendChild(el('div', { class: 'queries-empty', text: 'Loading…' }));
+		showFormError('queriesError', '');
+		queriesDialog.showModal();
+		$('queriesClose').focus();
+		loadQueries();
+		stopQueriesTimer();
+		queriesTimer = setInterval(function () { if (!document.hidden) loadQueries(); }, 2000);
+	});
+	$('queriesRefresh').addEventListener('click', loadQueries);
+	$('queriesClose').addEventListener('click', function () { queriesDialog.close(); });
+	queriesDialog.addEventListener('close', stopQueriesTimer);
+	queriesDialog.addEventListener('mousedown', function (event) { if (event.target === queriesDialog) queriesDialog.close(); });
 
 	function showResult(r) {
 		var body = $('resultBody');
