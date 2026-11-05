@@ -288,26 +288,26 @@ public class StorageService {
 		}
 		Set<String> current = new HashSet<>();
 		List<String> unreadable = new java.util.ArrayList<>();
-		try (Statement st = target.createStatement()) {
-			if (!storages.isEmpty()) {
-				loadHttpfs(st);
+		// One Statement per SQL: the DuckDB JDBC driver closes a Statement whose execute() fails, so reusing it
+		// would hide the real error behind "Statement was closed"
+		if (!storages.isEmpty()) {
+			loadHttpfs(target);
+		}
+		for (StorageConfig s : storages) {
+			String plain;
+			try {
+				plain = decrypt(s);
+			} catch (IllegalStateException e) {
+				logger.warn("[storage] '{}' of '{}' skipped: {}", s.getName(), login, e.getMessage());
+				unreadable.add(s.getName());
+				continue;
 			}
-			for (StorageConfig s : storages) {
-				String plain;
-				try {
-					plain = decrypt(s);
-				} catch (IllegalStateException e) {
-					logger.warn("[storage] '{}' of '{}' skipped: {}", s.getName(), login, e.getMessage());
-					unreadable.add(s.getName());
-					continue;
-				}
-				st.execute(StorageSecrets.createSql(s, plain));
-				current.add(s.getName());
-			}
-			for (String gone : previous) {
-				if (!current.contains(gone)) {
-					st.execute(StorageSecrets.dropSql(login, gone));
-				}
+			execute(target, StorageSecrets.createSql(s, plain));
+			current.add(s.getName());
+		}
+		for (String gone : previous) {
+			if (!current.contains(gone)) {
+				execute(target, StorageSecrets.dropSql(login, gone));
 			}
 		}
 		Set<String> before = applied.put(login, current);
@@ -337,14 +337,31 @@ public class StorageService {
 		}
 	}
 
-	private static void loadHttpfs(Statement st) throws SQLException {
+	private static void loadHttpfs(Connection target) throws SQLException {
 		try {
-			st.execute("LOAD httpfs");
+			execute(target, "LOAD httpfs");
 		} catch (SQLException notInstalled) {
-			logger.info("[storage] installing the DuckDB httpfs extension");
-			st.execute("INSTALL httpfs");
-			st.execute("LOAD httpfs");
+			logger.info("[storage] installing the DuckDB httpfs extension ({})", firstLine(notInstalled));
+			try {
+				execute(target, "INSTALL httpfs");
+			} catch (SQLException e) {
+				throw new SQLException("the DuckDB httpfs extension is not installed and could not be downloaded"
+						+ " (the server needs Internet access once, or install it by hand): " + firstLine(e), e);
+			}
+			execute(target, "LOAD httpfs");
 		}
+	}
+
+	/** Runs one statement on its own Statement, so a failure cannot affect the next one. */
+	private static void execute(Connection target, String sql) throws SQLException {
+		try (Statement st = target.createStatement()) {
+			st.execute(sql);
+		}
+	}
+
+	private static String firstLine(SQLException e) {
+		String m = e.getMessage();
+		return m == null ? e.toString() : m.split("\\R", 2)[0];
 	}
 
 	/**
