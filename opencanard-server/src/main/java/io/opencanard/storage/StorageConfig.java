@@ -50,6 +50,9 @@ public final class StorageConfig {
 	public String getPathPrefix() { return pathPrefix; }
 	public String getAccessKeyId() { return accessKeyId; }
 	public String getSecretEncrypted() { return secretEncrypted; }
+
+	/** A public bucket: no access key ID and no secret, so requests are not signed. */
+	public boolean isAnonymous() { return accessKeyId == null || accessKeyId.isEmpty(); }
 	public Timestamp getCreatedAt() { return createdAt; }
 	public Timestamp getUpdatedAt() { return updatedAt; }
 

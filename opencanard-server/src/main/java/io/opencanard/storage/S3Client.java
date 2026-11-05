@@ -138,12 +138,13 @@ public final class S3Client {
 		String authority = authority();
 		String path = pathStyle ? "/" + bucket : "/";
 		String amzDate = AMZ_DATE.format(Instant.now());
-		String authorization = authorization("GET", authority, path, query, amzDate, region, accessKeyId, secret);
-
 		URI uri = URI.create((useSsl ? "https://" : "http://") + authority + path + "?" + canonicalQuery(query));
-		HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(15)).GET()
-				.header("x-amz-date", amzDate).header("x-amz-content-sha256", EMPTY_SHA256)
-				.header("Authorization", authorization).build();
+		HttpRequest.Builder builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(15)).GET();
+		if (!isAnonymous()) {
+			builder.header("x-amz-date", amzDate).header("x-amz-content-sha256", EMPTY_SHA256).header("Authorization",
+					authorization("GET", authority, path, query, amzDate, region, accessKeyId, secret));
+		}
+		HttpRequest request = builder.build();
 
 		HttpResponse<InputStream> response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
 		byte[] body;
@@ -157,6 +158,11 @@ public final class S3Client {
 			throw error(response.statusCode(), body, authority);
 		}
 		return parseListing(body, prefix == null ? "" : prefix, authority);
+	}
+
+	/** No credentials: requests go unsigned, as public buckets accept. */
+	public boolean isAnonymous() {
+		return accessKeyId == null || accessKeyId.isEmpty();
 	}
 
 	/** Host (with port if not the default one) the request goes to, and the one that is signed. */

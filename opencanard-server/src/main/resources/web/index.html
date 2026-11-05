@@ -137,11 +137,12 @@
 				<span class="help">Use only this folder of the bucket.</span>
 			</div>
 			<div class="field span2">
-				<label for="stKey">Access key ID</label>
-				<input id="stKey" name="accessKeyId" autocomplete="off" spellcheck="false" required>
+				<label for="stKey">Access key ID <span class="optional">optional</span></label>
+				<input id="stKey" name="accessKeyId" autocomplete="off" spellcheck="false">
+				<span class="help">Leave the key and the secret empty for a public bucket.</span>
 			</div>
 			<div class="field span2">
-				<label for="stSecret">Secret access key</label>
+				<label for="stSecret">Secret access key <span class="optional">optional</span></label>
 				<input id="stSecret" name="secretAccessKey" type="password" autocomplete="new-password" spellcheck="false">
 				<span class="help" id="stSecretHelp">Stored encrypted. It is never shown again.</span>
 			</div>

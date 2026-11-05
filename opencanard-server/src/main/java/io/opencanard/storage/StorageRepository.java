@@ -17,8 +17,8 @@ import java.util.List;
  * url_style              VARCHAR    'vhost' or 'path'
  * use_ssl                BOOLEAN
  * path_prefix            VARCHAR    '' or a folder ending in '/'
- * access_key_id          VARCHAR
- * secret_access_key_enc  VARCHAR    encrypted by {@link SecretBox}, never returned by the API
+ * access_key_id          VARCHAR    '' for a public bucket
+ * secret_access_key_enc  VARCHAR    encrypted by {@link SecretBox}, never returned by the API; '' for a public bucket
  * created_at, updated_at TIMESTAMP  set with now()
  * </pre>
  * Every method takes the connection to use, so callers decide which (duplicate) connection runs it.

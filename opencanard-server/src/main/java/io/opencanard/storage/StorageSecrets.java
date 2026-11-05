@@ -28,8 +28,11 @@ public final class StorageSecrets {
 		StringBuilder sql = new StringBuilder("CREATE OR REPLACE TEMPORARY SECRET ")
 				.append(identifier(secretName(s.getLogin(), s.getName())))
 				.append(" (TYPE S3");
-		sql.append(", KEY_ID ").append(literal(s.getAccessKeyId()));
-		sql.append(", SECRET ").append(literal(plainSecret));
+		if (!s.isAnonymous()) {
+			// Without KEY_ID and SECRET DuckDB sends unsigned requests, which public buckets accept
+			sql.append(", KEY_ID ").append(literal(s.getAccessKeyId()));
+			sql.append(", SECRET ").append(literal(plainSecret));
+		}
 		sql.append(", REGION ").append(literal(s.getRegion()));
 		if (s.getEndpoint() != null && !s.getEndpoint().isEmpty()) {
 			sql.append(", ENDPOINT ").append(literal(s.getEndpoint()));

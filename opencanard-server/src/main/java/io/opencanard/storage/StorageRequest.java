@@ -17,8 +17,9 @@ public class StorageRequest {
 	public Boolean useSsl;
 	/** Only this folder of the bucket is used. Optional. */
 	public String pathPrefix;
+	/** Empty, with an empty secret, for a public bucket. */
 	public String accessKeyId;
-	/** Required on create. On update, empty or missing keeps the stored secret. */
+	/** Required on create when there is an access key ID. On update, empty or missing keeps the stored secret. */
 	public String secretAccessKey;
 
 	public StorageRequest() {

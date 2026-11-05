@@ -21,7 +21,10 @@ public final class StorageValidator {
 	private StorageValidator() {
 	}
 
-	/** What the form fields become once checked. The secret is {@code null} when an update keeps the stored one. */
+	/**
+	 * What the form fields become once checked. The secret is {@code null} when an update keeps the stored one.
+	 * A public bucket has an empty access key ID and an empty secret ({@link #anonymous}).
+	 */
 	public static final class Clean {
 		public String name;
 		public String bucket;
@@ -32,10 +35,12 @@ public final class StorageValidator {
 		public String pathPrefix;
 		public String accessKeyId;
 		public String secret;
+		/** No credentials: requests to the bucket are not signed. */
+		public boolean anonymous;
 	}
 
 	/**
-	 * @param creating true for a new storage (name and secret are required)
+	 * @param creating true for a new storage (name required; a secret is required with an access key ID)
 	 * @throws IllegalArgumentException with a message for the user
 	 */
 	public static Clean validate(StorageRequest in, boolean creating) {
@@ -87,14 +92,25 @@ public final class StorageValidator {
 		out.pathPrefix = prefix(in.pathPrefix);
 
 		out.accessKeyId = trim(in.accessKeyId);
+		String secret = in.secretAccessKey;
+		boolean noSecret = secret == null || secret.isEmpty();
+		if (out.accessKeyId.isEmpty()) {
+			if (!noSecret) {
+				throw new IllegalArgumentException(
+						"Type the access key ID that goes with the secret, or leave both empty for a public bucket");
+			}
+			out.anonymous = true;
+			out.secret = "";
+			return out;
+		}
 		if (!ACCESS_KEY.matcher(out.accessKeyId).matches()) {
 			throw new IllegalArgumentException("Access key ID must be 4 to 128 characters without spaces");
 		}
 
-		String secret = in.secretAccessKey;
-		if (secret == null || secret.isEmpty()) {
+		if (noSecret) {
 			if (creating) {
-				throw new IllegalArgumentException("Secret access key is required");
+				throw new IllegalArgumentException(
+						"Secret access key is required with an access key ID; leave both empty for a public bucket");
 			}
 			out.secret = null;
 		} else {

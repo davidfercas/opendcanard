@@ -79,7 +79,7 @@ public class StorageController {
 	}
 
 	@OpenApi(path = "/api/console/storages/{name}", methods = HttpMethod.PUT, summary = "Change an S3 storage",
-			description = "Replaces every field but the name. An empty secretAccessKey keeps the stored secret.",
+			description = "Replaces every field but the name. An empty secretAccessKey keeps the stored secret; an empty accessKeyId and secretAccessKey make it a public bucket.",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Storage" },
 			pathParams = { @OpenApiParam(name = "name", required = true) },
 			requestBody = @OpenApiRequestBody(content = @OpenApiContent(from = StorageRequest.class), required = true),
@@ -179,7 +179,7 @@ public class StorageController {
 	}
 
 	@OpenApi(path = "/api/console/storages/test", methods = HttpMethod.POST, summary = "Test the values of a storage",
-			description = "Lists the top of the bucket with the given values without saving them. An empty secretAccessKey uses the one stored under the same name.",
+			description = "Lists the top of the bucket with the given values without saving them. An empty secretAccessKey uses the one stored under the same name; an empty accessKeyId and secretAccessKey test a public bucket.",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Storage" },
 			requestBody = @OpenApiRequestBody(content = @OpenApiContent(from = StorageRequest.class), required = true),
 			responses = { @OpenApiResponse(status = "200", description = "{\"ok\": true|false, \"message\": \"...\"}", content = @OpenApiContent(from = Map.class)),
@@ -245,7 +245,8 @@ public class StorageController {
 		m.put("useSsl", s.isUseSsl());
 		m.put("pathPrefix", s.getPathPrefix());
 		m.put("accessKeyId", s.getAccessKeyId());
-		m.put("hasSecret", true);
+		m.put("hasSecret", !s.isAnonymous());
+		m.put("anonymous", s.isAnonymous());
 		m.put("secretReadable", secretReadable);
 		m.put("url", s.url());
 		m.put("createdAt", s.getCreatedAt() == null ? null : s.getCreatedAt().toLocalDateTime().withNano(0).toString().replace('T', ' '));

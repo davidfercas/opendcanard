@@ -18,7 +18,8 @@ import org.duckdb.DuckDBConnection;
  * authenticated request, never from the body.
  * <p>
  * Rules: names are unique per user and cannot be renamed; the secret is stored encrypted and is never returned;
- * on update an empty secret keeps the stored one.
+ * on update an empty secret keeps the stored one. A storage without access key ID and secret is a public bucket:
+ * it keeps an empty key and an empty secret, and its requests are not signed.
  */
 public class StorageService {
 
@@ -90,7 +91,7 @@ public class StorageService {
 				throw new AlreadyExistsException("You already have a storage named '" + clean.name + "'");
 			}
 			requireDistinctScope(c, login, clean.name, clean);
-			repository.insert(c, login, clean, secrets.encrypt(clean.secret, context(login, clean.name)));
+			repository.insert(c, login, clean, encrypt(clean, login, clean.name));
 			logger.info("[storage] '{}' added storage '{}' ({})", login, clean.name, clean.bucket);
 			return repository.find(c, login, clean.name);
 		}
@@ -103,12 +104,16 @@ public class StorageService {
 			requireDistinctScope(c, login, name, clean);
 			if (clean.secret == null) {
 				StorageConfig existing = repository.find(c, login, name);
+				if (existing != null && existing.isAnonymous()) {
+					throw new IllegalArgumentException(
+							"This storage has no saved secret: type the secret access key, or leave both fields empty for a public bucket");
+				}
 				if (existing != null && !isReadable(existing)) {
 					throw new IllegalArgumentException(
 							"The saved secret cannot be read any more because the storage key changed. Type the secret again");
 				}
 			}
-			String encrypted = clean.secret == null ? null : secrets.encrypt(clean.secret, context(login, name));
+			String encrypted = clean.secret == null ? null : encrypt(clean, login, name);
 			if (repository.update(c, login, name, clean, encrypted) == 0) {
 				throw notFound(name);
 			}
@@ -148,7 +153,7 @@ public class StorageService {
 			throw notFound(name);
 		}
 		try {
-			secret = secrets.decrypt(config.getSecretEncrypted(), context(login, name));
+			secret = decrypt(config);
 		} catch (IllegalStateException e) {
 			throw new RemoteException("The saved secret cannot be read any more because the storage key changed. Edit the storage and type the secret again");
 		}
@@ -158,8 +163,8 @@ public class StorageService {
 	}
 
 	/**
-	 * Tries the values of the form without saving them: lists the top of the bucket. With an empty secret the one
-	 * stored under the same name is used.
+	 * Tries the values of the form without saving them: lists the top of the bucket. With an access key ID and an
+	 * empty secret the one stored under the same name is used; with neither the bucket is read without signing.
 	 *
 	 * @return a sentence saying what was found
 	 */
@@ -174,11 +179,12 @@ public class StorageService {
 					existing = repository.find(c, login, name);
 				}
 			}
-			if (existing == null) {
-				throw new IllegalArgumentException("Type the secret access key to test the connection");
+			if (existing == null || existing.isAnonymous()) {
+				throw new IllegalArgumentException(
+						"Type the secret access key to test the connection, or leave both fields empty for a public bucket");
 			}
 			try {
-				secret = secrets.decrypt(existing.getSecretEncrypted(), context(login, name));
+				secret = decrypt(existing);
 			} catch (IllegalStateException e) {
 				throw new IllegalArgumentException("The saved secret cannot be read any more. Type the secret again");
 			}
@@ -187,7 +193,7 @@ public class StorageService {
 				clean.accessKeyId, secret);
 		S3Client.Listing top = remote(client, clean.pathPrefix, null, 50);
 		int n = top.folders.size() + top.files.size();
-		return "Connected to bucket '" + clean.bucket + "'. "
+		return "Connected to " + (clean.anonymous ? "public " : "") + "bucket '" + clean.bucket + "'. "
 				+ (n == 0 ? "It is empty at this level."
 						: "Found " + top.folders.size() + " folder(s) and " + top.files.size() + " file(s)"
 								+ (top.truncated ? " or more" : "") + " at the top.");
@@ -197,7 +203,7 @@ public class StorageService {
 		try {
 			return client.list(prefix, token, pageSize);
 		} catch (S3Client.S3Exception e) {
-			throw new RemoteException(e.getMessage() + hint(e));
+			throw new RemoteException(e.getMessage() + hint(client, e));
 		} catch (java.io.IOException e) {
 			throw new RemoteException("Cannot reach the storage: " + e.getMessage());
 		} catch (InterruptedException e) {
@@ -206,14 +212,15 @@ public class StorageService {
 		}
 	}
 
-	private static String hint(S3Client.S3Exception e) {
+	private static String hint(S3Client client, S3Client.S3Exception e) {
 		switch (e.getCode()) {
 		case "SignatureDoesNotMatch":
 			return " (check the secret access key and the region)";
 		case "InvalidAccessKeyId":
 			return " (check the access key ID)";
 		case "AccessDenied":
-			return " (the key has no permission to list this bucket or folder)";
+			return client.isAnonymous() ? " (the bucket does not allow public listing; add an access key)"
+					: " (the key has no permission to list this bucket or folder)";
 		case "NoSuchBucket":
 			return " (check the bucket name)";
 		case "PermanentRedirect":
@@ -260,7 +267,7 @@ public class StorageService {
 			if (config == null) {
 				throw notFound(name);
 			}
-			return secrets.decrypt(config.getSecretEncrypted(), context(login, name));
+			return decrypt(config);
 		}
 	}
 
@@ -288,7 +295,7 @@ public class StorageService {
 			for (StorageConfig s : storages) {
 				String plain;
 				try {
-					plain = secrets.decrypt(s.getSecretEncrypted(), context(login, s.getName()));
+					plain = decrypt(s);
 				} catch (IllegalStateException e) {
 					logger.warn("[storage] '{}' of '{}' skipped: {}", s.getName(), login, e.getMessage());
 					unreadable.add(s.getName());
@@ -323,7 +330,7 @@ public class StorageService {
 	/** False when the stored secret cannot be decrypted with the current storage key. */
 	public boolean isReadable(StorageConfig s) {
 		try {
-			secrets.decrypt(s.getSecretEncrypted(), context(s.getLogin(), s.getName()));
+			decrypt(s);
 			return true;
 		} catch (IllegalStateException e) {
 			return false;
@@ -353,6 +360,19 @@ public class StorageService {
 						+ ". A query path could not tell them apart: use a different bucket or folder");
 			}
 		}
+	}
+
+	/** The plain secret of a storage; empty for a public bucket. */
+	private String decrypt(StorageConfig s) {
+		if (s.isAnonymous()) {
+			return "";
+		}
+		return secrets.decrypt(s.getSecretEncrypted(), context(s.getLogin(), s.getName()));
+	}
+
+	/** What goes in {@code secret_access_key_enc}: empty for a public bucket, otherwise the encrypted secret. */
+	private String encrypt(StorageValidator.Clean clean, String login, String name) {
+		return clean.anonymous ? "" : secrets.encrypt(clean.secret, context(login, name));
 	}
 
 	static String context(String login, String name) {

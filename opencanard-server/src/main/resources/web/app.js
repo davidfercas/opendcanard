@@ -511,9 +511,10 @@
 		$('stPrefix').value = editing ? editing.pathPrefix : '';
 		$('stKey').value = editing ? editing.accessKeyId : '';
 		$('stSecret').value = '';
-		$('stSecret').required = !editing;
-		$('stSecret').placeholder = editing ? 'Leave empty to keep the current secret' : '';
-		$('stSecretHelp').textContent = editing && editing.secretReadable === false ? 'The saved secret cannot be read any more. Type it again.' : editing ? 'A secret is stored. Type a new one only to replace it.' : 'Stored encrypted. It is never shown again.';
+		$('stSecret').required = false;
+		var hasSecret = !!(editing && !editing.anonymous);
+		$('stSecret').placeholder = hasSecret ? 'Leave empty to keep the current secret' : '';
+		$('stSecretHelp').textContent = hasSecret && editing.secretReadable === false ? 'The saved secret cannot be read any more. Type it again.' : hasSecret ? 'A secret is stored. Type a new one only to replace it.' : 'Stored encrypted. It is never shown again.';
 		$('stEndpoint').value = editing && editing.endpoint ? editing.endpoint : '';
 		$('stStyle').value = editing && editing.endpoint ? editing.urlStyle : '';
 		$('stSsl').checked = editing ? editing.useSsl : true;

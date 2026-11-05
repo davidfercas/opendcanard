@@ -31,10 +31,11 @@ admins included; nobody sees another user's storages. **Add storage** opens a fo
 | Name | Your label, unique among your storages. It cannot be changed afterwards. |
 | Bucket, Region | Where the data lives. Region is required for AWS S3. |
 | Folder | Optional. Only this folder of the bucket is used. |
-| Access key ID, Secret access key | The credentials. The secret is stored encrypted and is never shown again. |
+| Access key ID, Secret access key | Optional. The credentials; the secret is stored encrypted and is never shown again. Leave both empty for a public bucket: its requests are sent unsigned. |
 | Compatible services | Endpoint (`host:port`, no `http://`), URL style and https, for MinIO, Ceph or similar. Leave empty for AWS. |
 
-Use the pencil to edit a storage (leave the secret empty to keep the current one) and the bin to remove it.
+Use the pencil to edit a storage (leave the secret empty to keep the current one, or empty both fields to make it
+a public bucket) and the bin to remove it.
 Removing a storage deletes its saved keys only, never the files in the bucket.
 
 ### Browsing a bucket and testing a connection
@@ -46,7 +47,8 @@ The reload button next to **Add storage** forgets what was loaded.
 
 **Test connection** in the form tries the values you typed without saving them and says what S3 answered, for
 example `SignatureDoesNotMatch (check the secret access key and the region)`, `AccessDenied` or `NoSuchBucket`.
-With the secret field empty on an existing storage, the saved secret is used.
+With the secret field empty on an existing storage, the saved secret is used. With both fields empty the bucket is
+read anonymously; a bucket that does not allow public listing answers `AccessDenied`.
 
 Listing needs the `s3:ListBucket` permission, which reading a known file does not. A key that can read files
 but not list the bucket works in queries and shows `AccessDenied` in the tree. The server lists buckets itself
@@ -129,7 +131,7 @@ A storage looks like this in responses (and in the body of POST and PUT, plus `s
 
 ```json
 { "name": "data-lake", "bucket": "company-data", "region": "eu-west-1", "endpoint": null, "urlStyle": "vhost",
-  "useSsl": true, "pathPrefix": "raw/2026/", "accessKeyId": "AKIA...", "hasSecret": true,
+  "useSsl": true, "pathPrefix": "raw/2026/", "accessKeyId": "AKIA...", "hasSecret": true, "anonymous": false,
   "url": "s3://company-data/raw/2026/", "createdAt": "2026-11-04 10:00:00", "updatedAt": "2026-11-04 10:00:00" }
 ```
 
