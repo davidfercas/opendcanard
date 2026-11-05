@@ -28,7 +28,7 @@
 	--mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 	--side-width: 300px;
 	--editor-height: 38%;
-	--structure-height: 62%;
+	--structure-height: 50%;
 	color-scheme: light;
 }
 
@@ -122,16 +122,27 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
 .add-btn { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px; background: transparent; border: 1px solid var(--line); border-radius: 4px; color: var(--teal); font-size: 12.5px; font-weight: 600; }
 .add-btn:hover { background: var(--teal-soft); }
 .storage-list { overflow: auto; min-height: 0; padding-bottom: 10px; }
-.storage { display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 12px; min-height: 40px; position: relative; }
+.storage { display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 8px; min-height: 40px; position: relative; }
 .storage:hover, .storage:focus-within { background: var(--panel-alt); }
 .storage .kind { color: var(--muted); }
-.storage .text { min-width: 0; flex: 1; }
+.storage-main { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; padding: 0; background: transparent; border: 0; text-align: left; align-self: stretch; }
+.storage-main .chev { width: 12px; height: 12px; color: var(--muted); transition: transform .1s; flex: none; }
+.storage-main[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.storage .text { min-width: 0; flex: 1; display: block; }
 .storage .s-name { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .storage .s-url { display: block; font: 11.5px var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .storage .actions { display: flex; gap: 2px; opacity: 0; }
 .storage:hover .actions, .storage:focus-within .actions { opacity: 1; }
 @media (hover: none) { .storage .actions { opacity: 1; } }
 .storage-warning { margin: 0 12px 6px; padding: 8px 10px; border: 1px solid var(--error); border-left-width: 4px; border-radius: 4px; background: var(--error-bg); color: var(--error); font-size: 12.5px; overflow-wrap: anywhere; }
+.bucket-node .name { font-size: 13px; }
+.bucket-note { padding: 4px 8px 4px calc(8px + var(--depth, 1) * 14px + 16px); font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.bucket-note.bad { color: var(--error); }
+.bucket-note .link-btn { font-size: 12.5px; }
+.test-result { margin: 12px 0 0; padding: 8px 10px; border: 1px solid var(--line); border-left-width: 4px; border-radius: 4px; font-size: 13px; overflow-wrap: anywhere; }
+.test-result.ok { border-color: var(--teal); background: var(--teal-soft); }
+.test-result.bad { border-color: var(--error); background: var(--error-bg); color: var(--error); }
+.test-btn { margin-right: auto; }
 .storage-hint { margin: 8px 12px 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .storage .s-url.bad { color: var(--error); font-family: var(--sans); }
 .storage-empty { padding: 4px 12px 12px; color: var(--muted); font-size: 13px; }

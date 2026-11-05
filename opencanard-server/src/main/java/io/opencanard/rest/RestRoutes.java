@@ -67,6 +67,8 @@ public class RestRoutes {
 		// S3 STORAGES of the logged-in user
 		routes.get("/api/console/storages", storages::list);
 		routes.post("/api/console/storages", storages::create);
+		routes.post("/api/console/storages/test", storages::test);
+		routes.get("/api/console/storages/{name}/objects", storages::objects);
 		routes.put("/api/console/storages/{name}", storages::update);
 		routes.delete("/api/console/storages/{name}", storages::delete);
 

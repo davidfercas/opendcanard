@@ -42,6 +42,30 @@ public class StorageService {
 		}
 	}
 
+	/** The storage could not be reached or S3 refused the request; the message is meant for the user. */
+	public static class RemoteException extends RuntimeException {
+		private static final long serialVersionUID = 1L;
+
+		public RemoteException(String message) {
+			super(message);
+		}
+	}
+
+	/** One level of a bucket, with paths relative to the storage's own folder. */
+	public static final class Browsed {
+		public final StorageConfig storage;
+		public final String path;
+		public final S3Client.Listing listing;
+
+		Browsed(StorageConfig storage, String path, S3Client.Listing listing) {
+			this.storage = storage;
+			this.path = path;
+			this.listing = listing;
+		}
+	}
+
+	public static final int PAGE_SIZE = 200;
+
 	private final Connection metadatadb;
 	private final SecretBox secrets;
 	private final StorageRepository repository = new StorageRepository();
@@ -101,6 +125,128 @@ public class StorageService {
 			}
 			logger.info("[storage] '{}' removed storage '{}'", login, name);
 		}
+	}
+
+	/**
+	 * Lists one level of the bucket of a storage, below its folder.
+	 *
+	 * @param path  folder relative to the storage's own folder, empty for the top
+	 * @param token continuation token of the previous page, or null
+	 */
+	public Browsed browse(String login, String name, String path, String token) throws SQLException {
+		requireName(name);
+		String relative = relativePath(path);
+		if (token != null && token.length() > 2048) {
+			throw new IllegalArgumentException("Invalid page token");
+		}
+		StorageConfig config;
+		String secret;
+		try (Connection c = ((DuckDBConnection) metadatadb).duplicate()) {
+			config = repository.find(c, login, name);
+		}
+		if (config == null) {
+			throw notFound(name);
+		}
+		try {
+			secret = secrets.decrypt(config.getSecretEncrypted(), context(login, name));
+		} catch (IllegalStateException e) {
+			throw new RemoteException("The saved secret cannot be read any more because the storage key changed. Edit the storage and type the secret again");
+		}
+		S3Client client = new S3Client(config.getEndpoint(), config.getRegion(), config.getBucket(),
+				config.getUrlStyle(), config.isUseSsl(), config.getAccessKeyId(), secret);
+		return new Browsed(config, relative, remote(client, config.getPathPrefix() + relative, token, PAGE_SIZE));
+	}
+
+	/**
+	 * Tries the values of the form without saving them: lists the top of the bucket. With an empty secret the one
+	 * stored under the same name is used.
+	 *
+	 * @return a sentence saying what was found
+	 */
+	public String test(String login, StorageRequest request) throws SQLException {
+		StorageValidator.Clean clean = StorageValidator.validate(request, false);
+		String secret = clean.secret;
+		if (secret == null) {
+			String name = request.name == null ? "" : request.name.trim();
+			StorageConfig existing = null;
+			if (StorageValidator.isValidName(name)) {
+				try (Connection c = ((DuckDBConnection) metadatadb).duplicate()) {
+					existing = repository.find(c, login, name);
+				}
+			}
+			if (existing == null) {
+				throw new IllegalArgumentException("Type the secret access key to test the connection");
+			}
+			try {
+				secret = secrets.decrypt(existing.getSecretEncrypted(), context(login, name));
+			} catch (IllegalStateException e) {
+				throw new IllegalArgumentException("The saved secret cannot be read any more. Type the secret again");
+			}
+		}
+		S3Client client = new S3Client(clean.endpoint, clean.region, clean.bucket, clean.urlStyle, clean.useSsl,
+				clean.accessKeyId, secret);
+		S3Client.Listing top = remote(client, clean.pathPrefix, null, 50);
+		int n = top.folders.size() + top.files.size();
+		return "Connected to bucket '" + clean.bucket + "'. "
+				+ (n == 0 ? "It is empty at this level."
+						: "Found " + top.folders.size() + " folder(s) and " + top.files.size() + " file(s)"
+								+ (top.truncated ? " or more" : "") + " at the top.");
+	}
+
+	private static S3Client.Listing remote(S3Client client, String prefix, String token, int pageSize) {
+		try {
+			return client.list(prefix, token, pageSize);
+		} catch (S3Client.S3Exception e) {
+			throw new RemoteException(e.getMessage() + hint(e));
+		} catch (java.io.IOException e) {
+			throw new RemoteException("Cannot reach the storage: " + e.getMessage());
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new RemoteException("The request was interrupted");
+		}
+	}
+
+	private static String hint(S3Client.S3Exception e) {
+		switch (e.getCode()) {
+		case "SignatureDoesNotMatch":
+			return " (check the secret access key and the region)";
+		case "InvalidAccessKeyId":
+			return " (check the access key ID)";
+		case "AccessDenied":
+			return " (the key has no permission to list this bucket or folder)";
+		case "NoSuchBucket":
+			return " (check the bucket name)";
+		case "PermanentRedirect":
+		case "AuthorizationHeaderMalformed":
+			return " (check the region)";
+		default:
+			return "";
+		}
+	}
+
+	/** A folder below the storage's own, without {@code ..}; empty or ending in {@code /}. */
+	static String relativePath(String path) {
+		String p = path == null ? "" : path.trim();
+		while (p.startsWith("/")) {
+			p = p.substring(1);
+		}
+		if (p.isEmpty()) {
+			return "";
+		}
+		if (p.length() > 1024) {
+			throw new IllegalArgumentException("The folder path is too long");
+		}
+		for (String part : p.split("/", -1)) {
+			if (part.equals("..") || part.equals(".")) {
+				throw new IllegalArgumentException("The folder path cannot contain '.' or '..'");
+			}
+		}
+		for (int i = 0; i < p.length(); i++) {
+			if (Character.isISOControl(p.charAt(i))) {
+				throw new IllegalArgumentException("The folder path contains a control character");
+			}
+		}
+		return p.endsWith("/") ? p : p + "/";
 	}
 
 	/**

@@ -137,6 +137,72 @@ public class StorageController {
 		}
 	}
 
+	@OpenApi(path = "/api/console/storages/{name}/objects", methods = HttpMethod.GET, summary = "Browse a bucket",
+			description = "Folders and files directly under 'path' (relative to the storage's own folder), 200 per page.",
+			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Storage" },
+			pathParams = { @OpenApiParam(name = "name", required = true) },
+			queryParams = { @OpenApiParam(name = "path"), @OpenApiParam(name = "token") },
+			responses = { @OpenApiResponse(status = "200", content = @OpenApiContent(from = Map.class)),
+					@OpenApiResponse(status = "401", description = "Missing or invalid credentials"),
+					@OpenApiResponse(status = "404", description = "The user has no storage with that name"),
+					@OpenApiResponse(status = "502", description = "The storage cannot be reached or refused the request") })
+	public void objects(Context ctx) {
+		handle(ctx, login -> {
+			StorageService.Browsed b = storages.browse(login, ctx.pathParam("name"), ctx.queryParam("path"),
+					ctx.queryParam("token"));
+			String root = b.storage.getPathPrefix();
+			List<Map<String, Object>> folders = new ArrayList<>();
+			for (String full : b.listing.folders) {
+				String relative = full.startsWith(root) ? full.substring(root.length()) : full;
+				String shown = relative.substring(b.path.length() <= relative.length() ? b.path.length() : 0);
+				Map<String, Object> f = new LinkedHashMap<>();
+				f.put("name", shown);
+				f.put("path", relative);
+				folders.add(f);
+			}
+			List<Map<String, Object>> files = new ArrayList<>();
+			for (io.opencanard.storage.S3Client.FileEntry e : b.listing.files) {
+				Map<String, Object> f = new LinkedHashMap<>();
+				f.put("name", e.name);
+				f.put("size", e.size);
+				f.put("modified", e.modified);
+				f.put("url", "s3://" + b.storage.getBucket() + "/" + e.key);
+				files.add(f);
+			}
+			Map<String, Object> out = new LinkedHashMap<>();
+			out.put("path", b.path);
+			out.put("folders", folders);
+			out.put("files", files);
+			out.put("nextToken", b.listing.nextToken);
+			ctx.json(out);
+		});
+	}
+
+	@OpenApi(path = "/api/console/storages/test", methods = HttpMethod.POST, summary = "Test the values of a storage",
+			description = "Lists the top of the bucket with the given values without saving them. An empty secretAccessKey uses the one stored under the same name.",
+			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Storage" },
+			requestBody = @OpenApiRequestBody(content = @OpenApiContent(from = StorageRequest.class), required = true),
+			responses = { @OpenApiResponse(status = "200", description = "{\"ok\": true|false, \"message\": \"...\"}", content = @OpenApiContent(from = Map.class)),
+					@OpenApiResponse(status = "400", description = "A field is invalid"),
+					@OpenApiResponse(status = "401", description = "Missing or invalid credentials") })
+	public void test(Context ctx) {
+		StorageRequest body = body(ctx);
+		if (body == null) {
+			return;
+		}
+		handle(ctx, login -> {
+			Map<String, Object> out = new LinkedHashMap<>();
+			try {
+				out.put("message", storages.test(login, body));
+				out.put("ok", true);
+			} catch (StorageService.RemoteException e) {
+				out.put("message", e.getMessage());
+				out.put("ok", false);
+			}
+			ctx.json(out);
+		});
+	}
+
 	private void handle(Context ctx, Call call) {
 		String login = ctx.attribute("username");
 		try {
@@ -147,6 +213,8 @@ public class StorageController {
 			error(ctx, 404, e.getMessage());
 		} catch (StorageService.AlreadyExistsException e) {
 			error(ctx, 409, e.getMessage());
+		} catch (StorageService.RemoteException e) {
+			error(ctx, 502, e.getMessage());
 		} catch (Exception e) {
 			logger.error("Storage request of '{}' failed", login, e);
 			error(ctx, 500, "Unexpected error: " + e.getMessage());

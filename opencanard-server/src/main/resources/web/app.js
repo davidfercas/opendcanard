@@ -16,7 +16,9 @@
 		running: false,
 		renderId: 0,
 		storages: [],
-		storageWarning: null
+		storageWarning: null,
+		bucket: {},               // storage name -> folder path -> { folders, files, nextToken, loading, error }
+		s3open: new Set()
 	};
 
 	// ---------- small helpers ----------
@@ -94,6 +96,8 @@
 	function showLogin(message) {
 		state.token = null;
 		state.storages = [];
+		state.bucket = {};
+		state.s3open = new Set();
 		tokenStore(null);
 		$('app').hidden = true;
 		$('login').hidden = false;
@@ -350,6 +354,7 @@
 
 	function renderStorages() {
 		var box = $('storageList');
+		var scroll = box.scrollTop;
 		box.textContent = '';
 		if (state.storageWarning) {
 			box.appendChild(el('p', { class: 'storage-warning', role: 'status', text: state.storageWarning }));
@@ -362,20 +367,123 @@
 			return;
 		}
 		state.storages.forEach(function (s) {
+			var storageKey = key('s3', s.name, '');
+			var open = state.s3open.has(storageKey);
 			var edit = el('button', { type: 'button', class: 'icon-btn', title: 'Edit ' + s.name, 'aria-label': 'Edit ' + s.name }, [icon('i-edit')]);
 			var remove = el('button', { type: 'button', class: 'icon-btn', title: 'Remove ' + s.name, 'aria-label': 'Remove ' + s.name }, [icon('i-trash')]);
 			edit.addEventListener('click', function () { openStorageForm(s); });
 			remove.addEventListener('click', function () { openRemove(s); });
 			var where = s.url + (s.endpoint ? ' at ' + s.endpoint : '');
-			var row = el('div', { class: 'storage', title: where }, [
+			var main = el('button', { type: 'button', class: 'storage-main', 'aria-expanded': String(open), title: where }, [
+				icon('i-chevron', 'chev'),
 				icon('i-bucket', 'kind'),
-				el('div', { class: 'text' }, [el('span', { class: 's-name', text: s.name }), el('span', { class: 's-url' + (s.secretReadable === false ? ' bad' : ''), text: s.secretReadable === false ? 'Secret must be entered again' : s.url })]),
-				el('div', { class: 'actions' }, [edit, remove])
+				el('span', { class: 'text' }, [el('span', { class: 's-name', text: s.name }), el('span', { class: 's-url' + (s.secretReadable === false ? ' bad' : ''), text: s.secretReadable === false ? 'Secret must be entered again' : s.url })])
 			]);
-			row.addEventListener('dblclick', function () { openStorageForm(s); });
-			box.appendChild(row);
+			main.addEventListener('click', function () {
+				if (state.s3open.has(storageKey)) state.s3open.delete(storageKey); else state.s3open.add(storageKey);
+				renderStorages();
+			});
+			box.appendChild(el('div', { class: 'storage' }, [main, el('div', { class: 'actions' }, [edit, remove])]));
+			if (open) {
+				var rows = [];
+				bucketRows(s, '', 1, rows);
+				rows.forEach(function (r) { box.appendChild(r); });
+			}
 		});
 		box.appendChild(el('p', { class: 'storage-hint', text: 'Read files in SQL with s3://bucket/path, for example read_csv(\'s3://' + state.storages[0].bucket + '/file.csv\').' }));
+		box.scrollTop = scroll;
+	}
+
+	// ---------- bucket contents ----------
+
+	function bucketRows(s, path, depth, into) {
+		var cache = state.bucket[s.name] || (state.bucket[s.name] = {});
+		var level = cache[path];
+		if (!level) {
+			loadBucket(s, path, null);
+			level = cache[path];
+		}
+		level.folders.forEach(function (f) {
+			var folderKey = key('s3', s.name, f.path);
+			var open = state.s3open.has(folderKey);
+			var btn = bucketNode(depth, 'i-schema', f.name.replace(/\/$/, ''), '', open);
+			btn.addEventListener('click', function () {
+				if (state.s3open.has(folderKey)) state.s3open.delete(folderKey); else state.s3open.add(folderKey);
+				renderStorages();
+			});
+			into.push(btn);
+			if (open) bucketRows(s, f.path, depth + 1, into);
+		});
+		level.files.forEach(function (file) {
+			var btn = bucketNode(depth, 'i-file', file.name, U.formatBytes(file.size), null);
+			btn.title = file.url + '\n' + file.modified;
+			var sample = U.sampleQuery(file.url, 100);
+			if (!sample) { into.push(btn); return; }
+			var run = function () { $('sql').value = sample; onEditorChange(); runQuery(); };
+			btn.addEventListener('dblclick', run);
+			var play = el('button', { type: 'button', class: 'open-btn', title: 'Select rows from ' + file.name, 'aria-label': 'Select rows from ' + file.name }, [icon('i-play')]);
+			play.addEventListener('click', run);
+			into.push(el('div', { class: 'row' }, [btn, play]));
+		});
+		if (level.loading && level.folders.length + level.files.length === 0) {
+			into.push(bucketNote(depth, 'Loading…'));
+		} else if (level.error) {
+			var retry = el('button', { type: 'button', class: 'link-btn', text: 'Try again' });
+			retry.addEventListener('click', function () { loadBucket(s, path, level.nextToken); renderStorages(); });
+			var note = bucketNote(depth, level.error);
+			note.classList.add('bad');
+			note.appendChild(document.createTextNode(' '));
+			note.appendChild(retry);
+			into.push(note);
+		} else if (level.nextToken) {
+			var more = el('button', { type: 'button', class: 'link-btn', text: level.loading ? 'Loading…' : 'Load more' });
+			more.addEventListener('click', function () { loadBucket(s, path, level.nextToken); renderStorages(); });
+			var moreRow = bucketNote(depth, '');
+			moreRow.appendChild(more);
+			into.push(moreRow);
+		} else if (level.folders.length + level.files.length === 0 && !level.loading) {
+			into.push(bucketNote(depth, 'Empty'));
+		}
+	}
+
+	function bucketNode(depth, iconId, name, sub, open) {
+		var btn = el('button', { type: 'button', class: 'node bucket-node' });
+		btn.style.setProperty('--depth', depth + 1);
+		if (open !== null) btn.setAttribute('aria-expanded', String(open));
+		btn.appendChild(icon('i-chevron', 'chev' + (open === null ? ' none' : '')));
+		btn.appendChild(icon(iconId, 'kind'));
+		btn.appendChild(el('span', { class: 'name', text: name }));
+		if (sub) btn.appendChild(el('span', { class: 'sub', text: sub }));
+		return btn;
+	}
+
+	function bucketNote(depth, text) {
+		var p = el('div', { class: 'bucket-note', text: text });
+		p.style.setProperty('--depth', depth + 1);
+		return p;
+	}
+
+	function loadBucket(s, path, token) {
+		var cache = state.bucket[s.name] || (state.bucket[s.name] = {});
+		var level = cache[path];
+		if (!level || !token) {
+			level = cache[path] = { folders: [], files: [], nextToken: null, loading: true, error: null };
+		} else {
+			level.loading = true;
+			level.error = null;
+		}
+		var url = '/api/console/storages/' + encodeURIComponent(s.name) + '/objects?path=' + encodeURIComponent(path) +
+			(token ? '&token=' + encodeURIComponent(token) : '');
+		api(url).then(function (r) {
+			level.folders = token ? level.folders.concat(r.folders) : r.folders;
+			level.files = token ? level.files.concat(r.files) : r.files;
+			level.nextToken = r.nextToken;
+		}, function (e) {
+			level.error = e.message;
+		}).then(function () {
+			level.loading = false;
+			if (state.bucket[s.name] === cache && cache[path] === level) renderStorages();
+		});
 	}
 
 	var dialog = $('storageDialog');
@@ -394,6 +502,7 @@
 		var form = $('storageForm');
 		form.reset();
 		showFormError('storageError', '');
+		showTest('', true);
 		$('storageTitle').textContent = editing ? 'Edit ' + editing.name : 'Add S3 storage';
 		$('stName').value = editing ? editing.name : '';
 		$('stName').disabled = !!editing;
@@ -430,6 +539,34 @@
 	}
 
 	$('addStorageBtn').addEventListener('click', function () { openStorageForm(null); });
+	$('refreshStorageBtn').addEventListener('click', function () {
+		state.bucket = {};
+		state.storageWarning = null;
+		loadStorages();
+	});
+
+	// Test connection: tries the values of the form without saving them
+	function showTest(message, ok) {
+		var box = $('storageTestResult');
+		box.textContent = message || '';
+		box.hidden = !message;
+		box.className = 'test-result ' + (ok ? 'ok' : 'bad');
+	}
+
+	$('storageTest').addEventListener('click', function () {
+		showFormError('storageError', '');
+		showTest('Connecting…', true);
+		var btn = $('storageTest');
+		btn.disabled = true;
+		var body = readForm();
+		body.name = editing ? editing.name : body.name;
+		api('/api/console/storages/test', { method: 'POST', body: body }).then(function (r) {
+			showTest(r.message, r.ok);
+		}, function (e) {
+			showTest(e.message, false);
+		}).then(function () { btn.disabled = false; });
+	});
+	$('storageForm').addEventListener('input', function () { showTest('', true); });
 	$('storageCancel').addEventListener('click', function () { dialog.close(); });
 
 	$('storageForm').addEventListener('submit', function (event) {
@@ -443,6 +580,7 @@
 			: api('/api/console/storages', { method: 'POST', body: body });
 		request.then(function (saved) {
 			state.storageWarning = saved && saved.warning ? saved.warning : null;
+			delete state.bucket[editing ? editing.name : body.name];
 			dialog.close();
 			return loadStorages();
 		}, function (e) {
@@ -470,6 +608,7 @@
 		confirm.disabled = true;
 		api('/api/console/storages/' + encodeURIComponent(removing.name), { method: 'DELETE' }).then(function (done) {
 			state.storageWarning = done && done.warning ? done.warning : null;
+			delete state.bucket[removing.name];
 			removeDialog.close();
 			return loadStorages();
 		}, function (e) {
@@ -505,6 +644,8 @@
 	$('runBtn').addEventListener('click', run);
 
 	// ---------- run and show results ----------
+
+	function runQuery() { run(); }
 
 	function run() {
 		if (state.running) return;

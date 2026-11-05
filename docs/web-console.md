@@ -37,6 +37,23 @@ admins included; nobody sees another user's storages. **Add storage** opens a fo
 Use the pencil to edit a storage (leave the secret empty to keep the current one) and the bin to remove it.
 Removing a storage deletes its saved keys only, never the files in the bucket.
 
+### Browsing a bucket and testing a connection
+
+Click a storage to open its bucket: folders and files appear under it, 200 per page (**Load more** gets the
+next ones). Files show their size; hover for the full `s3://` path and the date. The play button on a `.parquet`,
+`.csv`, `.tsv`, `.json`, `.jsonl` or `.ndjson` file (also with `.gz` or `.zst`) writes and runs a `SELECT` for it.
+The reload button next to **Add storage** forgets what was loaded.
+
+**Test connection** in the form tries the values you typed without saving them and says what S3 answered, for
+example `SignatureDoesNotMatch (check the secret access key and the region)`, `AccessDenied` or `NoSuchBucket`.
+With the secret field empty on an existing storage, the saved secret is used.
+
+Listing needs the `s3:ListBucket` permission, which reading a known file does not. A key that can read files
+but not list the bucket works in queries and shows `AccessDenied` in the tree. The server lists buckets itself
+(a signed `ListObjectsV2` call), so this does not need DuckDB's `httpfs` extension, but the server must be able to
+reach the endpoint. The server contacts whatever endpoint a user types, so on shared servers restrict outgoing
+network access if that is a concern.
+
 ### Reading files from a storage
 
 When you save, edit or remove a storage, and again every time you run a query or a JDBC or Flight client connects,
@@ -96,6 +113,8 @@ All calls need `Authorization: Bearer <token>` (or Basic credentials) and appear
 | `POST /api/console/storages` | add one |
 | `PUT /api/console/storages/{name}` | change one; an empty `secretAccessKey` keeps the stored secret |
 | `DELETE /api/console/storages/{name}` | remove one |
+| `GET /api/console/storages/{name}/objects?path=&token=` | folders and files of the bucket, one level |
+| `POST /api/console/storages/test` | try the values of a storage without saving; answers `{"ok": true, "message": "..."}` |
 
 `POST /api/console/query` answers:
 
