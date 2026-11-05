@@ -72,6 +72,7 @@ public class RestApiServer implements AutoCloseable {
 				files.hostedPath = "/console";
 				files.directory = "/web";
 				files.location = io.javalin.http.staticfiles.Location.CLASSPATH;
+				files.headers = java.util.Map.of("Cache-Control", "no-cache");
 			});
 
 			config.jetty.port = this.port;
