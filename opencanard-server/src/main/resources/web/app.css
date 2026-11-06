@@ -125,6 +125,24 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
 .run:hover { filter: brightness(.96); }
 .run:disabled { opacity: .6; cursor: progress; }
 .run.wide { width: 100%; }
+.tool-btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--text); font-size: 13px; }
+.tool-btn:hover, .tool-btn[aria-expanded="true"] { border-color: var(--teal); color: var(--teal); }
+
+/* Query history */
+.history { position: relative; }
+.history-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; width: min(560px, calc(100vw - 32px)); max-height: 60vh; display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 10px 28px rgba(0,0,0,.18); }
+.history-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--muted); font-weight: 600; }
+.history-list { list-style: none; margin: 0; padding: 4px 0; overflow: auto; }
+.history-empty { padding: 14px 12px; color: var(--muted); font-size: 13px; }
+.history-item { display: flex; align-items: stretch; gap: 4px; padding: 0 6px 0 0; }
+.history-item:hover, .history-item:focus-within { background: var(--panel-alt); }
+.history-load { flex: 1; min-width: 0; display: grid; gap: 2px; padding: 7px 12px; background: transparent; border: 0; text-align: left; }
+.history-sql { font: 12.5px/1.45 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.history-meta { font-size: 11.5px; color: var(--muted); }
+.history-meta.failed { color: var(--error); }
+.history-run { align-self: center; width: 28px; height: 28px; display: inline-grid; place-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; color: var(--teal); }
+.history-run:hover { border-color: var(--teal); }
+
 .editor { position: relative; min-height: 0; overflow: hidden; }
 .editor-layer { position: absolute; inset: 0; margin: 0; padding: 12px 14px; border: 0; font: 13px/1.6 var(--mono); tab-size: 4; white-space: pre; overflow: auto; letter-spacing: 0; word-spacing: 0; }
 #hl { color: var(--c-ident); pointer-events: none; overflow: hidden; }

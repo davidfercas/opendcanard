@@ -35,4 +35,17 @@ public class Config {
     public static int getInt(String key) {
         return Integer.parseInt(get(key));
     }
+
+    /** The integer value of {@code key}, or {@code defaultValue} when it is missing or not a number. */
+    public static int getInt(String key, int defaultValue) {
+        String value = get(key);
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
 }

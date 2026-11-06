@@ -33,6 +33,7 @@ installation directory themselves.
 | `opencanard.db` | `opencanard.duckdb` | File name of the analytics database, inside `data/`. |
 | `metadatadb.db` | `metadata.duckdb` | File name of the metadata database, inside `metadata/`. |
 | `arrow.memory.mb` | `512` | Upper limit, in MB, of the Arrow memory allocator. |
+| `console.history.size` | `10` | Past queries kept per user in the web console's **History** (0 turns it off, at most 100). |
 
 These properties are present in the sample file but **are not read by the server yet**:
 
