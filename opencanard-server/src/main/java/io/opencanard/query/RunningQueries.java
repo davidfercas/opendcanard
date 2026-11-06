@@ -37,7 +37,7 @@ public class RunningQueries {
 	static final int MAX_SQL = 4000;
 
 	public enum Source {
-		CONSOLE("Console"), FLIGHT("Arrow Flight");
+		CONSOLE("Console"), FLIGHT("Arrow Flight"), FLIGHT_SQL("Arrow Flight SQL");
 
 		private final String label;
 

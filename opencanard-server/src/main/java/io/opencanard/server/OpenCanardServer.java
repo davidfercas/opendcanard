@@ -34,6 +34,7 @@ import org.apache.arrow.flight.PutResult;
 import org.apache.arrow.flight.Result;
 import org.apache.arrow.flight.SchemaResult;
 import org.apache.arrow.flight.Ticket;
+import org.apache.arrow.flight.auth2.GeneratedBearerTokenAuthenticator;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.types.pojo.Schema;
@@ -41,7 +42,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
-import io.grpc.internal.LogExceptionRunnable;
+import com.google.common.cache.CacheBuilder;
+
+import io.opencanard.flightsql.FlightSqlCommands;
+import io.opencanard.flightsql.OpenCanardFlightSqlProducer;
 import io.opencanard.auth.OpenCanardAuthenticator;
 import io.opencanard.conf.Config;
 import io.opencanard.rest.RestApiServer;
@@ -67,6 +71,8 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	private final UserConnections userConnections;
 	// Queries running now, from Flight and the web console, so they can be listed and cancelled
 	private final RunningQueries runningQueries = new RunningQueries();
+	// Arrow Flight SQL requests (ADBC, Flight SQL JDBC/ODBC drivers) go here; raw SQL commands stay in this class
+	private final OpenCanardFlightSqlProducer flightSql;
 	
 	
 	
@@ -213,7 +219,15 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		// Build server
 		this.allocator = allocator;
 	//	this.server = FlightServer.builder(this.allocator, location, this).middleware(FlightServerMiddleware.Key.of("auth"),new AuthMiddlewareFactory("mysecret123")).build();
-		this.server = FlightServer.builder(this.allocator, location, this).headerAuthenticator(new OpenCanardAuthenticator(this.metadatadb)).build();
+		// Basic credentials are checked against opencanard_users. Every successful Basic call is answered with a
+		// Bearer token (Authorization response header) that the client may send instead from then on: Flight SQL
+		// clients (ADBC, the Flight SQL JDBC driver) log in once with Basic and continue with the token. Tokens
+		// live in memory and expire after an hour without use; OpenCanard's own clients keep sending Basic.
+		this.server = FlightServer.builder(this.allocator, location, this)
+				.headerAuthenticator(new GeneratedBearerTokenAuthenticator(new OpenCanardAuthenticator(this.metadatadb),
+						CacheBuilder.newBuilder().expireAfterAccess(60, java.util.concurrent.TimeUnit.MINUTES)
+								.maximumSize(100_000)))
+				.build();
 		//this.server = FlightServer.builder(this.allocator, location, this).headerAuthenticator(CallHeaderAuthenticator.NO_OP).build(); 
 		
 		// REST API (Javalin): all endpoints live in the io.opencanard.rest package
@@ -234,6 +248,8 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 			throw new IllegalStateException("Cannot read or create the storage key in " + METADATA_DIR, e);
 		}
 		this.userConnections = new UserConnections(this.metadatadb, this.userDatabases, storageService);
+		this.flightSql = new OpenCanardFlightSqlProducer(this.userConnections, this.runningQueries, this.allocator,
+				serverVersion());
 		this.restApi = new RestApiServer(this.duckdb, this.metadatadb, userService, this.userConnections,
 				storageService, this.runningQueries, Config.getInt("opencanard.rest.port"));
 	}
@@ -411,6 +427,7 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	public void close() throws Exception {
 		logger.info("Stopping OpenCanard Server");
 		this.server.close();
+		this.flightSql.close();
 		this.userDatabases.close();
 		this.duckdb.close();
 		this.restApi.stop();
@@ -426,6 +443,12 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		return userConnections.open(context.peerIdentity());
 	}
 
+	/** The version of the server jar (Implementation-Version), or "dev" when run from the IDE. */
+	private static String serverVersion() {
+		String v = OpenCanardServer.class.getPackage().getImplementationVersion();
+		return v == null ? "dev" : v;
+	}
+
 	/** A query stopped through {@link RunningQueries#cancel} (SQLSTATE 57014, "query canceled"). */
 	private static boolean isCancelled(Exception e) {
 		return e instanceof SQLException && "57014".equals(((SQLException) e).getSQLState());
@@ -434,6 +457,9 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	// ============================
 	// FlightProducer interface
 	// ============================
+	// Two protocols share the port. A command, ticket or DoPut descriptor holding a Flight SQL protobuf message
+	// goes to OpenCanardFlightSqlProducer; anything else is OpenCanard's own protocol, where the command and the
+	// ticket are the SQL text (the bundled JDBC driver, the DBeaver plugin, plain PyArrow code).
 
 	@Override
 	public FlightInfo getFlightInfo(CallContext context, FlightDescriptor descriptor) {
@@ -441,6 +467,9 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		if (descriptor.getCommand() == null) {
 			throw CallStatus.INVALID_ARGUMENT.withDescription("Only SQL command descriptors are supported")
 					.toRuntimeException();
+		}
+		if (FlightSqlCommands.isFlightSql(descriptor.getCommand())) {
+			return flightSql.getFlightInfo(context, descriptor);
 		}
 
 		String sql = new String(descriptor.getCommand(), StandardCharsets.UTF_8);
@@ -477,6 +506,10 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 
 	@Override
 	public void getStream(CallContext context, Ticket ticket, ServerStreamListener listener) {
+		if (FlightSqlCommands.isFlightSql(ticket.getBytes())) {
+			flightSql.getStream(context, ticket, listener);
+			return;
+		}
 		String sql = new String(ticket.getBytes(), StandardCharsets.UTF_8);
 		try (Connection conn = connectionFor(context)) {
 			RunningQueries.Query query = runningQueries.start(context.peerIdentity(), RunningQueries.Source.FLIGHT,
@@ -502,15 +535,17 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 
 	@Override
 	public void listFlights(CallContext context, Criteria criteria, StreamListener<FlightInfo> listener) {
-		// logger.error("listFlights not supported");
-		throw new UnsupportedOperationException("listFlights not supported");
+		flightSql.listFlights(context, criteria, listener);
 	}
 
 	@Override
 	public SchemaResult getSchema(CallContext context, FlightDescriptor descriptor) {
 		// You must wrap the Schema in a SchemaResult
 		// Usually, the SQL command is sent in the 'cmd' field of the descriptor
-		String sql = new String(descriptor.getCommand());
+		if (FlightSqlCommands.isFlightSql(descriptor.getCommand())) {
+			return flightSql.getSchema(context, descriptor);
+		}
+		String sql = new String(descriptor.getCommand(), StandardCharsets.UTF_8);
 
 		try (Connection conn = connectionFor(context)) {
 			Schema schema = getSchemaFromSql(conn, sql, this.allocator);
@@ -525,22 +560,21 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 //        throw new UnsupportedOperationException("getSchema not supported");
 //    }
 
+	// Actions and DoPut exist only in Flight SQL (prepared statements, cancel, updates)
+
 	@Override
 	public void doAction(CallContext context, Action action, StreamListener<Result> listener) {
-		// logger.error("doAction not supported");
-		throw new UnsupportedOperationException("doAction not supported");
+		flightSql.doAction(context, action, listener);
 	}
 
 	@Override
 	public void listActions(CallContext context, StreamListener<ActionType> listener) {
-		// logger.error("listActions not supported");
-		throw new UnsupportedOperationException("listActions not supported");
+		flightSql.listActions(context, listener);
 	}
 
 	@Override
 	public Runnable acceptPut(CallContext context, FlightStream flightStream, StreamListener<PutResult> ackStream) {
-		// logger.error("acceptPut not supported");
-		throw new UnsupportedOperationException("acceptPut not supported");
+		return flightSql.acceptPut(context, flightStream, ackStream);
 	}
 
 	// TODO: Change to RootAllocator

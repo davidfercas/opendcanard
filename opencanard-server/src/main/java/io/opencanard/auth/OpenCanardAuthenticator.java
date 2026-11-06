@@ -52,7 +52,11 @@ public class OpenCanardAuthenticator implements CallHeaderAuthenticator {
 				throw CallStatus.UNAUTHENTICATED.withDescription(e.getMessage()).toRuntimeException();
 			}
 		} else if (authHeader.startsWith("Bearer ")) {
-			return validateToken(authHeader.substring(7));
+			// Valid bearer tokens are the ones the server issued after a Basic login; GeneratedBearerTokenAuthenticator
+			// (see OpenCanardServer) recognises them before this class is asked. Anything else reaching here is
+			// unknown or expired.
+			throw CallStatus.UNAUTHENTICATED.withDescription("Unknown or expired bearer token, sign in again")
+					.toRuntimeException();
 		}
 
 		throw CallStatus.UNAUTHENTICATED.withDescription("Invalid Scheme").toRuntimeException();
@@ -73,10 +77,5 @@ public class OpenCanardAuthenticator implements CallHeaderAuthenticator {
 			}
 			throw UNAUTHENTICATED.toRuntimeException();
 		
-	}
-
-	private AuthResult validateToken(String token) {
-		// Verify JWT or opaque token...
-		return () -> "token_user";
 	}
 }
