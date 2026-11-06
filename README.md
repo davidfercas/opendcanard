@@ -8,7 +8,7 @@
 It exposes SQL execution over [Apache Arrow Flight](https://arrow.apache.org/docs/format/Flight.html), so Python, Java and BI tools can query Parquet files and S3-compatible object storage without relying on a managed cloud service.
 
 > **Status: early development (v0.1).** The core query path works, but several security features are not
-> finished yet (no TLS, weak token validation on the Flight port). Read
+> finished yet (no TLS, hard-coded JWT secret). Read
 > [docs/authentication.md](docs/authentication.md) before exposing a server to any network you do not fully trust.
 
 ## What OpenCanard is
@@ -31,8 +31,9 @@ It exposes SQL execution over [Apache Arrow Flight](https://arrow.apache.org/doc
 ## Features
 
 - Remote execution of DuckDB queries, with results streamed as Arrow record batches.
-- Python access through PyArrow Flight.
-- A JDBC driver for Java and BI tools (`SELECT` only).
+- **Arrow Flight SQL**: standard ADBC (Python, Go, C++, R, Java), Flight SQL JDBC and ODBC drivers connect
+  directly, with prepared statements and catalog metadata.
+- OpenCanard's own Flight protocol, for PyArrow Flight code and the bundled JDBC driver (`SELECT` only).
 - Parquet and S3-compatible storage through DuckDB.
 - Single-tenant deployments.
 - User accounts stored in a metadata database, with bcrypt-hashed passwords.
@@ -84,7 +85,19 @@ the bcrypt hash, are in [docs/authentication.md](docs/authentication.md#creating
 
 ### 4. Query it
 
-**Python** (PyArrow Flight):
+**Python** (ADBC Flight SQL, `pip install adbc-driver-flightsql pyarrow`):
+
+```python
+import adbc_driver_flightsql.dbapi as flight_sql
+
+with flight_sql.connect("grpc://localhost:8815", autocommit=True,
+                        db_kwargs={"username": "admin", "password": "change-me"}) as conn:
+    with conn.cursor() as cur:
+        cur.execute("SELECT 42 AS answer")
+        print(cur.fetch_arrow_table())
+```
+
+**Python** (plain PyArrow Flight, OpenCanard's own protocol):
 
 ```python
 import base64
@@ -103,8 +116,8 @@ table = client.do_get(info.endpoints[0].ticket, options).read_all()
 print(table.to_pandas())
 ```
 
-**Java / BI tools** (JDBC): add the `-all` jar to the tool, use the driver class
-`io.opencanard.driver.jdbc.OpenCanardDriver` and a URL such as `jdbc:opencanard://localhost:8815`.
+**Java / BI tools** (JDBC): use the standard Apache Arrow Flight SQL JDBC driver with
+`jdbc:arrow-flight-sql://localhost:8815/?useEncryption=false`, or the bundled driver `io.opencanard.driver.jdbc.OpenCanardDriver` with `jdbc:opencanard://localhost:8815`.
 Details are in [docs/clients.md](docs/clients.md).
 
 ## Documentation
@@ -113,7 +126,7 @@ Details are in [docs/clients.md](docs/clients.md).
 - [Authentication and security](docs/authentication.md) — users, tokens, TLS and known limitations.
 - [Web console](docs/web-console.md) — browse the database and run SQL from the browser.
 - [REST API](docs/rest-api.md) — health, login and management endpoints.
-- [Clients](docs/clients.md) — Python and JDBC usage.
+- [Clients](docs/clients.md) — Flight SQL (ADBC, JDBC) and OpenCanard protocol clients.
 - [Deployment](docs/deployment.md) — systemd service for Red Hat and Docker.
 
 ## License
