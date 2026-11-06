@@ -19,7 +19,10 @@
 		storages: [],
 		storageWarning: null,
 		bucket: {},               // storage name -> folder path -> { folders, files, nextToken, loading, error }
-		s3open: new Set()
+		s3open: new Set(),
+		epoch: 0,                 // bumped on every sign in and sign out; replies from an older epoch are dropped
+		history: [],              // past queries of the signed-in user, newest first
+		historySize: 10
 	};
 
 	// ---------- small helpers ----------
@@ -97,13 +100,47 @@
 
 	// ---------- sign in ----------
 
-	function showLogin(message) {
-		state.token = null;
+	/**
+	 * Puts every panel back to its empty state, so nothing from a previous session (an error in the tree, a
+	 * failed query, a result of another user) is still on screen after signing in or out.
+	 */
+	function resetPanels() {
+		state.epoch++;
+		state.session = null;
+		state.catalog = null;
+		state.columns = {};
+		state.expanded = new Set();
+		state.selected = null;
+		state.result = null;
+		state.renderId++;
+		state.queryId = null;
+		setRunning(false);
+		state.history = [];
 		state.storages = [];
+		state.storageWarning = null;
 		state.bucket = {};
 		state.s3open = new Set();
+		firstLoad = true;
+		['queriesDialog', 'storageDialog', 'removeDialog'].forEach(function (id) {
+			var d = $(id);
+			if (d && d.open) d.close(); // closing the running-queries dialog also stops its refresh timer
+		});
+		$('storageList').textContent = '';
+		$('refreshBtn').classList.remove('busy');
+		$('filter').value = '';
+		$('tree').textContent = '';
+		setStatus(null, 'Nothing run yet');
+		$('copyBtn').hidden = true;
+		$('csvBtn').hidden = true;
+		$('resultBody').textContent = '';
+		closeHistory();
+		$('historyList').textContent = '';
+	}
+
+	function showLogin(message) {
+		state.token = null;
 		tokenStore(null);
-		if ($('queriesDialog').open) $('queriesDialog').close(); // also stops its refresh timer
+		resetPanels();
 		$('app').hidden = true;
 		$('login').hidden = false;
 		var err = $('loginError');
@@ -139,14 +176,17 @@
 
 	function startApp() {
 		return api('/api/console/session').then(function (session) {
+			resetPanels();
 			state.session = session;
+			state.historySize = typeof session.historySize === 'number' ? Math.max(0, session.historySize) : 10;
+			state.history = loadHistory();
+			$('history').hidden = state.historySize === 0;
+			$('loginError').hidden = true;
+			$('loginError').textContent = '';
 			$('login').hidden = true;
 			$('app').hidden = false;
 			$('who').textContent = session.username + (session.admin ? ' (admin)' : '');
 			$('connLabel').textContent = session.admin ? 'Metadata database' : 'Personal database';
-			state.expanded = new Set();
-			state.columns = {};
-			state.catalog = null;
 			$('sql').focus();
 			loadStorages();
 			return loadCatalog(true);
@@ -159,18 +199,21 @@
 
 	function loadCatalog(initial) {
 		var btn = $('refreshBtn');
+		var epoch = state.epoch;
 		btn.classList.add('busy');
 		return api('/api/console/catalog').then(function (catalog) {
+			if (epoch !== state.epoch) return;
 			state.catalog = catalog;
 			if (initial || firstLoad) expandDefaults(catalog);
 			firstLoad = false;
 			renderTree();
 		}).catch(function (e) {
+			if (epoch !== state.epoch) return;
 			state.catalog = null;
 			var tree = $('tree');
 			tree.textContent = '';
 			tree.appendChild(el('div', { class: 'tree-empty', text: e.message }));
-		}).then(function () { btn.classList.remove('busy'); });
+		}).then(function () { if (epoch === state.epoch) btn.classList.remove('busy'); });
 	}
 
 	function expandDefaults(catalog) {
@@ -327,10 +370,14 @@
 	function loadColumns(o) {
 		var t = o.table;
 		var url = '/api/console/columns?catalog=' + encodeURIComponent(t.db) + '&schema=' + encodeURIComponent(t.schema) + '&table=' + encodeURIComponent(t.name);
-		api(url).then(function (cols) { state.columns[o.key] = cols; }, function (e) {
+		var epoch = state.epoch;
+		api(url).then(function (cols) {
+			if (epoch === state.epoch) state.columns[o.key] = cols;
+		}, function (e) {
+			if (epoch !== state.epoch) return;
 			state.columns[o.key] = [];
 			showError(e.message);
-		}).then(renderTree);
+		}).then(function () { if (epoch === state.epoch) renderTree(); });
 	}
 
 	$('filter').addEventListener('input', renderTree);
@@ -346,10 +393,13 @@
 	// ---------- S3 storages ----------
 
 	function loadStorages() {
+		var epoch = state.epoch;
 		return api('/api/console/storages').then(function (list) {
+			if (epoch !== state.epoch) return;
 			state.storages = list;
 			renderStorages();
 		}, function (e) {
+			if (epoch !== state.epoch) return;
 			state.storages = [];
 			var box = $('storageList');
 			box.textContent = '';
@@ -705,20 +755,27 @@
 		setRunning(true);
 		setStatus('Running…');
 		var started = performance.now();
+		var epoch = state.epoch;
 
 		api('/api/console/query', { method: 'POST', body: { sql: sql, maxRows: parseInt($('maxRows').value, 10), queryId: queryId } })
 			.then(function (result) {
+				if (epoch !== state.epoch) return; // signed out (or in as someone else) while it ran
 				result.clientMs = Math.round(performance.now() - started);
+				addToHistory(sql, true, result.columns.length ? plural(result.rowCount, 'row') + (result.truncated ? '+' : '') : result.message);
 				state.result = result;
 				showResult(result);
 				if (result.columns.length === 0 || result.statements > 1 || /\b(create|drop|alter|attach|detach|rename)\b/i.test(sql)) {
 					loadCatalog(false); // the script may have changed the structure
 				}
 			}, function (e) {
-				if (e.data && e.data.cancelled) showCancelled(e.message, /;\s*\S/.test(sql)); // more than one statement
+				if (epoch !== state.epoch) return;
+				var cancelled = e.data && e.data.cancelled;
+				addToHistory(sql, false, cancelled ? 'Cancelled' : 'Failed');
+				if (cancelled) showCancelled(e.message, /;\s*\S/.test(sql)); // more than one statement
 				else showError(e.message);
 			})
 			.then(function () {
+				if (epoch !== state.epoch) return;
 				state.queryId = null;
 				setRunning(false);
 			});
@@ -953,6 +1010,112 @@
 		a.click();
 		document.body.removeChild(a);
 		setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+	});
+
+	// ---------- query history ----------
+
+	// Kept in this browser's localStorage, one list per user; its length comes from console.history.size.
+
+	function historyKey() { return 'oc.history.' + (state.session ? state.session.username : ''); }
+
+	function loadHistory() {
+		var list = [];
+		try { list = JSON.parse(store(historyKey()) || '[]'); } catch (e) { list = []; }
+		if (!Array.isArray(list)) list = [];
+		return list.filter(function (h) { return h && typeof h.sql === 'string'; }).slice(0, state.historySize);
+	}
+
+	function saveHistory() {
+		store(historyKey(), state.history.length ? JSON.stringify(state.history) : null);
+	}
+
+	function addToHistory(sql, ok, summary) {
+		if (!state.session || state.historySize === 0) return;
+		var text = sql.trim();
+		if (!text) return;
+		// the same query run again moves to the top instead of taking a second place
+		state.history = state.history.filter(function (h) { return h.sql !== text; });
+		state.history.unshift({ sql: text, at: Date.now(), ok: ok, summary: summary || '' });
+		state.history = state.history.slice(0, state.historySize);
+		saveHistory();
+		if (!$('historyMenu').hidden) renderHistory();
+	}
+
+	function whenText(ms) {
+		var d = new Date(ms);
+		var today = new Date();
+		var time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+		return d.toDateString() === today.toDateString() ? time : d.toLocaleDateString() + ' ' + time;
+	}
+
+	function renderHistory() {
+		var list = $('historyList');
+		list.textContent = '';
+		$('historyTitle').textContent = 'Recent queries (' + state.history.length + ' of ' + state.historySize + ')';
+		$('historyClear').hidden = state.history.length === 0;
+		if (state.history.length === 0) {
+			list.appendChild(el('li', { class: 'history-empty', text: 'Queries you run appear here.' }));
+			return;
+		}
+		state.history.forEach(function (h) {
+			var preview = h.sql.replace(/\s+/g, ' ');
+			var load = el('button', { type: 'button', class: 'history-load', title: h.sql.length > 2000 ? h.sql.slice(0, 2000) + '…' : h.sql }, [
+				el('span', { class: 'history-sql', text: preview }),
+				el('span', { class: 'history-meta' + (h.ok ? '' : ' failed'), text: whenText(h.at) + (h.summary ? ' · ' + h.summary : '') })
+			]);
+			load.addEventListener('click', function () { useHistory(h, false); });
+			var again = el('button', { type: 'button', class: 'history-run', title: 'Run again', 'aria-label': 'Run again: ' + preview.slice(0, 80) }, [icon('i-play')]);
+			again.addEventListener('click', function () { useHistory(h, true); });
+			list.appendChild(el('li', { class: 'history-item' }, [load, again]));
+		});
+	}
+
+	function useHistory(h, runIt) {
+		closeHistory();
+		sqlBox.value = h.sql;
+		onEditorChange();
+		sqlBox.focus();
+		sqlBox.setSelectionRange(sqlBox.value.length, sqlBox.value.length);
+		if (runIt) run();
+	}
+
+	function openHistory() {
+		renderHistory();
+		$('historyMenu').hidden = false;
+		$('historyBtn').setAttribute('aria-expanded', 'true');
+		var first = $('historyList').querySelector('button');
+		if (first) first.focus();
+	}
+
+	function closeHistory() {
+		$('historyMenu').hidden = true;
+		$('historyBtn').setAttribute('aria-expanded', 'false');
+	}
+
+	$('historyBtn').addEventListener('click', function () {
+		if ($('historyMenu').hidden) openHistory(); else closeHistory();
+	});
+	$('historyClear').addEventListener('click', function () {
+		state.history = [];
+		saveHistory();
+		renderHistory();
+		$('historyBtn').focus();
+	});
+	document.addEventListener('click', function (event) {
+		if (!$('historyMenu').hidden && !$('history').contains(event.target)) closeHistory();
+	});
+	$('history').addEventListener('keydown', function (event) {
+		if (event.key === 'Escape' && !$('historyMenu').hidden) {
+			closeHistory();
+			$('historyBtn').focus();
+			event.preventDefault();
+		}
+		if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && !$('historyMenu').hidden) {
+			var items = Array.prototype.slice.call($('historyList').querySelectorAll('.history-load'));
+			var i = items.indexOf(document.activeElement);
+			var next = event.key === 'ArrowDown' ? Math.min(items.length - 1, i + 1) : Math.max(0, i - 1);
+			if (items[next]) { items[next].focus(); event.preventDefault(); }
+		}
 	});
 
 	// ---------- resizing ----------

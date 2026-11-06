@@ -20,11 +20,19 @@ Open `http://localhost:8084/console/` (`/` redirects there) and sign in with an 
   with who started them, from where (the console or Arrow Flight, which includes Python, JDBC and DBeaver),
   when, for how long and their SQL. It refreshes every 2 seconds and has a **Kill** button on each row.
   A normal user sees only their own queries; an **admin sees and can kill the queries of every user**.
+- **Run a previous query.** **History** next to **Run** lists your last queries, newest first, with when
+  they ran and how they ended (row count, message or *Failed*). Click one to put it in the editor, or its
+  play button to run it straight away. Running the same SQL again moves it to the top instead of adding a
+  copy. The list keeps `console.history.size` queries (10 by default, see below), is stored in this
+  browser's `localStorage` per user name, and **Clear** empties it.
 - **Open a table.** Double-click it, or use the play button that appears on the row, to run
   `SELECT * FROM schema.table LIMIT 100`.
 - **Read the results.** Column types are shown under the names, `NULL` is distinct from empty text,
   numbers are right-aligned. Copy or download the result as CSV.
 - **Change the structure.** After `CREATE`, `DROP`, `ALTER` or any multi-statement script the tree reloads.
+- **Clean start.** Signing in or out empties every panel and closes any open dialog: no error, result, tree or S3 storage message from the previous
+  session (or the previous user) stays on screen, and a query still running when you signed out is ignored
+  when it finishes.
 - **Layout.** Drag the dividers (or focus one and use the arrow keys) to resize the panels. The theme button
   switches between light and dark; the first choice follows the system.
 
@@ -87,6 +95,12 @@ SELECT * FROM read_csv_auto('s3://test/countries/countries.csv', all_varchar = t
 - If the storage key changed and a secret cannot be decrypted, that storage is skipped and logged;
   edit it and enter the secret again.
 
+## History size
+
+`console.history.size` in `conf/opencanard.properties` sets how many past queries the console keeps for each
+user. Default `10`, at most `100`; `0` hides **History**. The value reaches the page through
+`GET /api/console/session` (`historySize`), so a restart of the server is enough to change it.
+
 ## Which database you work on
 
 The same rule as Arrow Flight and the JDBC driver:
@@ -117,7 +131,7 @@ All calls need `Authorization: Bearer <token>` (or Basic credentials) and appear
 
 | Method and path | Purpose |
 |-----------------|---------|
-| `GET /api/console/session` | login, whether it is an admin, which database |
+| `GET /api/console/session` | login, whether it is an admin, which database, `historySize` |
 | `GET /api/console/catalog` | databases, schemas, tables, views, indexes |
 | `GET /api/console/columns?catalog=&schema=&table=` | columns of a table or view |
 | `POST /api/console/query` | body `{"sql": "...", "maxRows": 1000, "queryId": "..."}`; `queryId` is optional (8 to 64 letters, digits or dashes) and lets the browser kill the query before the answer arrives |

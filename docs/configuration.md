@@ -34,6 +34,7 @@ installation directory themselves.
 | `metadatadb.db` | `metadata.duckdb` | File name of the metadata database, inside `metadata/`. |
 | `arrow.memory.mb` | `512` | Upper limit, in MB, of the Arrow memory allocator. |
 | `opencanard.storage.key` | *(not set)* | Passphrase that encrypts the S3 secret keys kept in the metadata database. When not set, a random key is created in `conf/storage.key` on the first start. |
+| `console.history.size` | `10` | Past queries kept per user in the web console's **History** (0 turns it off, at most 100). |
 
 These properties are present in the sample file but **are not read by the server yet**:
 

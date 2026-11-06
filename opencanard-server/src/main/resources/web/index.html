@@ -27,6 +27,7 @@
 	<symbol id="i-play" viewBox="0 0 16 16"><path d="M4.5 2.8v10.4L13 8z" fill="currentColor"/></symbol>
 	<symbol id="i-stop" viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9" rx="1.2" fill="currentColor"/></symbol>
 	<symbol id="i-activity" viewBox="0 0 16 16"><path d="M1.5 8.5h3l2-5 3 9 2-4h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+	<symbol id="i-history" viewBox="0 0 16 16"><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M2.3 2.6v2.6h2.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 5v3.2l2.2 1.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 	<symbol id="i-theme" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 2.8v10.4A5.2 5.2 0 0 0 8 2.8z" fill="currentColor"/></symbol>
 </svg>
 
@@ -85,6 +86,16 @@
 				<div class="toolbar">
 					<button id="runBtn" class="run" type="button"><svg class="ico"><use href="#i-play"/></svg>Run</button>
 					<button id="killBtn" class="btn kill" type="button" hidden title="Stop the query that is running"><svg class="ico"><use href="#i-stop"/></svg>Kill</button>
+					<div class="history" id="history">
+						<button id="historyBtn" class="tool-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="historyMenu" title="Recent queries"><svg class="ico"><use href="#i-history"/></svg>History</button>
+						<div id="historyMenu" class="history-menu" hidden>
+							<div class="history-head">
+								<span id="historyTitle">Recent queries</span>
+								<button id="historyClear" class="link-btn" type="button">Clear</button>
+							</div>
+							<ol id="historyList" class="history-list" aria-labelledby="historyTitle"></ol>
+						</div>
+					</div>
 					<span class="hint"><kbd>Ctrl</kbd> <kbd>Enter</kbd> runs the selection, or everything</span>
 					<span class="bar-spacer"></span>
 					<button id="queriesBtn" class="btn queries-btn" type="button" title="See the queries that are running and stop them"><svg class="ico"><use href="#i-activity"/></svg>Running queries</button>

@@ -31,16 +31,33 @@ public class ConsoleController {
 
 	private static final Logger logger = LogManager.getLogger(ConsoleController.class);
 
+	/** Queries kept in the console history when {@code console.history.size} is not set. */
+	public static final int DEFAULT_HISTORY_SIZE = 10;
+
+	/** Upper bound of {@code console.history.size}, so a typo cannot fill the browser storage. */
+	public static final int MAX_HISTORY_SIZE = 100;
+
 	private final UserConnections userConnections;
 	private final RunningQueries runningQueries;
+	private final int historySize;
 
 	public ConsoleController(UserConnections userConnections, RunningQueries runningQueries) {
+		this(userConnections, runningQueries, DEFAULT_HISTORY_SIZE);
+	}
+
+	/**
+	 * @param historySize how many past queries the console keeps for each user ({@code console.history.size});
+	 *                    0 turns the history off, values above {@link #MAX_HISTORY_SIZE} are capped
+	 */
+	public ConsoleController(UserConnections userConnections, RunningQueries runningQueries, int historySize) {
 		this.userConnections = userConnections;
 		this.runningQueries = runningQueries;
+		this.historySize = Math.max(0, Math.min(MAX_HISTORY_SIZE, historySize));
 	}
 
 	@OpenApi(path = "/api/console/session", methods = HttpMethod.GET, summary = "Who is connected to the console",
-			description = "Returns the login, whether it is an admin and the database the console works on.",
+			description = "Returns the login, whether it is an admin, the database the console works on and how many "
+					+ "past queries the console keeps (historySize, from console.history.size).",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Console" },
 			responses = { @OpenApiResponse(status = "200", content = @OpenApiContent(from = Map.class)),
 					@OpenApiResponse(status = "401", description = "Missing or invalid credentials") })
@@ -51,6 +68,7 @@ public class ConsoleController {
 		out.put("username", login);
 		out.put("admin", admin);
 		out.put("database", admin ? "metadata" : "personal");
+		out.put("historySize", historySize);
 		ctx.json(out);
 	}
 
