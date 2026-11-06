@@ -90,12 +90,9 @@ public final class DuckDBArrowUtil {
 
 	private static Outcome runOn(Statement stmt, String sql) throws Exception {
 		boolean first = stmt.execute(sql);
-		int updateCount = stmt.getUpdateCount();
-		// The JDBC driver's answer is not trusted alone: a plain INSERT / UPDATE / DELETE / CREATE... never
-		// has rows to stream, and streaming it would run executeQuery on it and fail.
-		boolean update = !first || (WRITE_STATEMENT.matcher(sql).find() && !RETURNING.matcher(sql).find());
-		logger.info("[flight-sql] execute() returned {}, update count {}, treated as {}: {}", first, updateCount,
-				update ? "UPDATE" : "QUERY", abbreviate(sql));
+		boolean update = isUpdate(first, sql);
+		logger.info("[flight] execute() returned {}, treated as {}: {}", first, update ? "UPDATE" : "QUERY",
+				abbreviate(sql));
 
 		if (!update) {
 			try (ResultSet rs = stmt.getResultSet()) {
@@ -105,7 +102,21 @@ public final class DuckDBArrowUtil {
 			}
 		}
 
-		long count = Math.max(updateCount, 0);
+		return new Outcome(null, updateCount(stmt, first));
+	}
+
+	/**
+	 * Whether a statement that {@code execute} answered {@code first} for has no rows to stream. The JDBC driver's
+	 * answer is not trusted alone: a plain INSERT / UPDATE / DELETE / CREATE... never has rows to stream, and
+	 * streaming it would run executeQuery on it and fail.
+	 */
+	public static boolean isUpdate(boolean first, String sql) {
+		return !first || (WRITE_STATEMENT.matcher(sql).find() && !RETURNING.matcher(sql).find());
+	}
+
+	/** Rows changed by the statement {@code stmt} just executed (0 for DDL). Reads the count once. */
+	public static long updateCount(Statement stmt, boolean first) throws java.sql.SQLException {
+		long count = Math.max(stmt.getUpdateCount(), 0);
 		if (first && count == 0) {
 			// Some DuckDB versions report the changed rows as a one-row result set named "Count"
 			try (ResultSet rs = stmt.getResultSet()) {
@@ -116,7 +127,7 @@ public final class DuckDBArrowUtil {
 				// no result set to read
 			}
 		}
-		return new Outcome(null, count);
+		return count;
 	}
 
 	/** Statements that change data or settings and never return rows (unless they have RETURNING). */

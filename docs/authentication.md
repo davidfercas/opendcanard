@@ -8,7 +8,7 @@
 | Area | Current behavior |
 | --- | --- |
 | Flight port (`8815`) — `Basic` credentials | Checked against the users table (bcrypt). |
-| Flight port — `Bearer` token | **Any value is accepted.** The token is not validated. |
+| Flight port — `Bearer` token | Issued by the server after a successful `Basic` call; unknown or expired tokens are refused. |
 | Flight port — transport | **Plaintext gRPC.** No TLS. |
 | REST API (`8084`) | Login returns a signed JWT; `/management/*` requires credentials or a JWT. Plain HTTP. |
 | JWT signing secret | **Hard-coded** in the source. |
@@ -93,8 +93,7 @@ first call and kept open until the server stops.
   `opencanard_databases`. The role is read from `opencanard_users` on every call. Because that database holds
   the password hashes, admin Flight access is full read-write access to it.
 - **Every other user** must have a row in `opencanard_databases`. A login without one, a missing file, or the
-  unvalidated `Bearer` tokens (see below, they have no registered login) are refused with an error. There is no
-  shared database fallback.
+  unknown `Bearer` token is refused with an error. There is no shared database fallback.
 - **Creating a user** through the REST API creates the file `data/users/<login>.duckdb`, the row in
   `opencanard_databases` and the row in `opencanard_users`, and removes whatever was created if one step fails.
 - **At every start** the server checks the registry: each non-admin user without a row gets one (an existing
@@ -108,12 +107,14 @@ Every Flight call must carry an `Authorization` header. Two schemes are recogniz
 
 - **`Basic <base64(user:password)>`** — the credentials are checked against the users table.
   Wrong credentials are rejected with `UNAUTHENTICATED`.
-- **`Bearer <token>`** — **accepted without validation.** The authenticator currently treats every
-  bearer token as valid. Anyone who can reach the port can send `Authorization: Bearer x` and run
-  queries. The server does not issue bearer tokens on the Flight port either.
+- **`Bearer <token>`** — a token the server issued. Every call that succeeds with `Basic` credentials gets
+  `Authorization: Bearer <token>` back in its response headers, and the client may send that instead from then
+  on. This is how Flight SQL clients (ADBC, the Flight SQL JDBC driver) work: they log in once with `Basic` and
+  continue with the token. Tokens are random, kept in the server's memory only (a restart forgets them) and expire
+  after one hour without use. Any other Bearer value is rejected with `UNAUTHENTICATED`.
 
-Clients should therefore send `Basic` credentials on each call (see [clients](clients.md)). Do not
-treat the Flight port as access-controlled until bearer-token validation is implemented.
+The REST API's JWTs are not accepted on the Flight port. The same port serves both Arrow Flight SQL and
+OpenCanard's own protocol (see [clients](clients.md)); authentication is the same for both.
 
 Once authenticated, there is no per-user or per-role authorization on the Flight port: every user can
 run any SQL statement the DuckDB connection allows, including statements that modify data.
@@ -143,7 +144,7 @@ See [REST API](rest-api.md) for the endpoints. In short:
 
 These are tracked here so they are not mistaken for features:
 
-1. Flight bearer tokens are not validated.
+1. Flight bearer tokens are kept in memory; they are not shared between servers and do not survive a restart.
 2. No TLS on either port; the `tls.*` properties are ignored.
 3. The JWT signing secret is hard-coded.
 4. `POST /management/shutdown` only requires an authenticated user, not the `admin` role.
