@@ -377,7 +377,7 @@ public class OpenCanardFlightSqlProducer implements FlightSqlProducer {
 			try {
 				query.attach(p.ps);
 				if (p.pendingBatch) {
-					// several parameter rows for a statement without rows: one batch
+					// parameter rows for a statement without rows: one batch
 					p.pendingBatch = false;
 					return new FlightInfo(EMPTY_SCHEMA, descriptor, Collections.emptyList(), -1, sum(p.ps.executeLargeBatch()));
 				}
@@ -432,7 +432,7 @@ public class OpenCanardFlightSqlProducer implements FlightSqlProducer {
 		}
 	}
 
-	/** Parameters for a query (DoPut before GetFlightInfo). Several rows on an update become one batch. */
+	/** Parameters for a query (DoPut before GetFlightInfo). On an update the rows are kept as a batch. */
 	@Override
 	public Runnable acceptPutPreparedStatementQuery(CommandPreparedStatementQuery command, CallContext context,
 			FlightStream flightStream, StreamListener<PutResult> ackStream) {
@@ -460,11 +460,8 @@ public class OpenCanardFlightSqlProducer implements FlightSqlProducer {
 						}
 					}
 					if (!p.returnsRows) {
-						if (rows > 1) {
-							p.pendingBatch = true;
-						} else {
-							p.ps.clearBatch(); // a single row stays bound and runs with a plain execute
-						}
+						// DuckDB's addBatch clears the bound parameters, so even a single row runs as a batch
+						p.pendingBatch = rows > 0;
 					} else if (rows > 1) {
 						logger.warn("[flight-sql] {} parameter rows for a query of '{}': only the last one is used", rows,
 								p.login);
