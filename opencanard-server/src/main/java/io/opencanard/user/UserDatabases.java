@@ -204,12 +204,13 @@ public class UserDatabases implements AutoCloseable {
 	private DuckDBConnection open(String username, Path file) throws SQLException {
 		DuckDBConnection conn = (DuckDBConnection) DriverManager.getConnection(url(file));
 		try (Statement stmt = conn.createStatement()) {
-			// Needed for the Arrow streaming of query results, once per database
+			// Not needed for Arrow streaming (the JDBC driver exports Arrow itself) and not published for DuckDB 2.0:
+			// loaded when available, a failure is only logged
 			stmt.execute("INSTALL arrow;");
 			stmt.execute("LOAD arrow;");
 		} catch (SQLException e) {
-			conn.close();
-			throw e;
+			logger.warn("[user-db] DuckDB arrow extension not available for '{}' ({}); not needed", username,
+					e.getMessage());
 		}
 		logger.info("[user-db] opened the database of '{}': {}", username, file);
 		return conn;
