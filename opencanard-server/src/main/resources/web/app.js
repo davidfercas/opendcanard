@@ -14,7 +14,12 @@
 		selected: null,
 		result: null,
 		running: false,
-		renderId: 0
+		queryId: null,            // id of the query this tab is running, to kill it
+		renderId: 0,
+		storages: [],
+		storageWarning: null,
+		bucket: {},               // storage name -> folder path -> { folders, files, nextToken, loading, error }
+		s3open: new Set()
 	};
 
 	// ---------- small helpers ----------
@@ -78,7 +83,10 @@
 				}
 				if (!res.ok) {
 					var message = (data && (data.error || data.title)) || text || res.statusText;
-					throw new Error(message);
+					var error = new Error(message);
+					error.status = res.status;
+					error.data = data;
+					throw error;
 				}
 				return data;
 			});
@@ -91,7 +99,11 @@
 
 	function showLogin(message) {
 		state.token = null;
+		state.storages = [];
+		state.bucket = {};
+		state.s3open = new Set();
 		tokenStore(null);
+		if ($('queriesDialog').open) $('queriesDialog').close(); // also stops its refresh timer
 		$('app').hidden = true;
 		$('login').hidden = false;
 		var err = $('loginError');
@@ -136,6 +148,7 @@
 			state.columns = {};
 			state.catalog = null;
 			$('sql').focus();
+			loadStorages();
 			return loadCatalog(true);
 		});
 	}
@@ -329,6 +342,291 @@
 		run();
 	}
 
+
+	// ---------- S3 storages ----------
+
+	function loadStorages() {
+		return api('/api/console/storages').then(function (list) {
+			state.storages = list;
+			renderStorages();
+		}, function (e) {
+			state.storages = [];
+			var box = $('storageList');
+			box.textContent = '';
+			box.appendChild(el('div', { class: 'storage-empty', text: e.message }));
+		});
+	}
+
+	function renderStorages() {
+		var box = $('storageList');
+		var scroll = box.scrollTop;
+		box.textContent = '';
+		if (state.storageWarning) {
+			box.appendChild(el('p', { class: 'storage-warning', role: 'status', text: state.storageWarning }));
+		}
+		if (state.storages.length === 0) {
+			var empty = el('div', { class: 'storage-empty' }, [
+				el('p', { text: 'No storage yet. Add an S3 bucket to give this account access to your files.' })
+			]);
+			box.appendChild(empty);
+			return;
+		}
+		state.storages.forEach(function (s) {
+			var storageKey = key('s3', s.name, '');
+			var open = state.s3open.has(storageKey);
+			var edit = el('button', { type: 'button', class: 'icon-btn', title: 'Edit ' + s.name, 'aria-label': 'Edit ' + s.name }, [icon('i-edit')]);
+			var remove = el('button', { type: 'button', class: 'icon-btn', title: 'Remove ' + s.name, 'aria-label': 'Remove ' + s.name }, [icon('i-trash')]);
+			edit.addEventListener('click', function () { openStorageForm(s); });
+			remove.addEventListener('click', function () { openRemove(s); });
+			var where = s.url + (s.endpoint ? ' at ' + s.endpoint : '');
+			var main = el('button', { type: 'button', class: 'storage-main', 'aria-expanded': String(open), title: where }, [
+				icon('i-chevron', 'chev'),
+				icon('i-bucket', 'kind'),
+				el('span', { class: 'text' }, [el('span', { class: 's-name', text: s.name }), el('span', { class: 's-url' + (s.secretReadable === false ? ' bad' : ''), text: s.secretReadable === false ? 'Secret must be entered again' : s.url })])
+			]);
+			main.addEventListener('click', function () {
+				if (state.s3open.has(storageKey)) state.s3open.delete(storageKey); else state.s3open.add(storageKey);
+				renderStorages();
+			});
+			box.appendChild(el('div', { class: 'storage' }, [main, el('div', { class: 'actions' }, [edit, remove])]));
+			if (open) {
+				var rows = [];
+				bucketRows(s, '', 1, rows);
+				rows.forEach(function (r) { box.appendChild(r); });
+			}
+		});
+		box.appendChild(el('p', { class: 'storage-hint', text: 'Read files in SQL with s3://bucket/path, for example read_csv(\'s3://' + state.storages[0].bucket + '/file.csv\').' }));
+		box.scrollTop = scroll;
+	}
+
+	// ---------- bucket contents ----------
+
+	function bucketRows(s, path, depth, into) {
+		var cache = state.bucket[s.name] || (state.bucket[s.name] = {});
+		var level = cache[path];
+		if (!level) {
+			loadBucket(s, path, null);
+			level = cache[path];
+		}
+		level.folders.forEach(function (f) {
+			var folderKey = key('s3', s.name, f.path);
+			var open = state.s3open.has(folderKey);
+			var btn = bucketNode(depth, 'i-schema', f.name.replace(/\/$/, ''), '', open);
+			btn.addEventListener('click', function () {
+				if (state.s3open.has(folderKey)) state.s3open.delete(folderKey); else state.s3open.add(folderKey);
+				renderStorages();
+			});
+			into.push(btn);
+			if (open) bucketRows(s, f.path, depth + 1, into);
+		});
+		level.files.forEach(function (file) {
+			var btn = bucketNode(depth, 'i-file', file.name, U.formatBytes(file.size), null);
+			btn.title = file.url + '\n' + file.modified;
+			var sample = U.sampleQuery(file.url, 100);
+			if (!sample) { into.push(btn); return; }
+			var run = function () { $('sql').value = sample; onEditorChange(); runQuery(); };
+			btn.addEventListener('dblclick', run);
+			var play = el('button', { type: 'button', class: 'open-btn', title: 'Select rows from ' + file.name, 'aria-label': 'Select rows from ' + file.name }, [icon('i-play')]);
+			play.addEventListener('click', run);
+			into.push(el('div', { class: 'row' }, [btn, play]));
+		});
+		if (level.loading && level.folders.length + level.files.length === 0) {
+			into.push(bucketNote(depth, 'Loading…'));
+		} else if (level.error) {
+			var retry = el('button', { type: 'button', class: 'link-btn', text: 'Try again' });
+			retry.addEventListener('click', function () { loadBucket(s, path, level.nextToken); renderStorages(); });
+			var note = bucketNote(depth, level.error);
+			note.classList.add('bad');
+			note.appendChild(document.createTextNode(' '));
+			note.appendChild(retry);
+			into.push(note);
+		} else if (level.nextToken) {
+			var more = el('button', { type: 'button', class: 'link-btn', text: level.loading ? 'Loading…' : 'Load more' });
+			more.addEventListener('click', function () { loadBucket(s, path, level.nextToken); renderStorages(); });
+			var moreRow = bucketNote(depth, '');
+			moreRow.appendChild(more);
+			into.push(moreRow);
+		} else if (level.folders.length + level.files.length === 0 && !level.loading) {
+			into.push(bucketNote(depth, 'Empty'));
+		}
+	}
+
+	function bucketNode(depth, iconId, name, sub, open) {
+		var btn = el('button', { type: 'button', class: 'node bucket-node' });
+		btn.style.setProperty('--depth', depth + 1);
+		if (open !== null) btn.setAttribute('aria-expanded', String(open));
+		btn.appendChild(icon('i-chevron', 'chev' + (open === null ? ' none' : '')));
+		btn.appendChild(icon(iconId, 'kind'));
+		btn.appendChild(el('span', { class: 'name', text: name }));
+		if (sub) btn.appendChild(el('span', { class: 'sub', text: sub }));
+		return btn;
+	}
+
+	function bucketNote(depth, text) {
+		var p = el('div', { class: 'bucket-note', text: text });
+		p.style.setProperty('--depth', depth + 1);
+		return p;
+	}
+
+	function loadBucket(s, path, token) {
+		var cache = state.bucket[s.name] || (state.bucket[s.name] = {});
+		var level = cache[path];
+		if (!level || !token) {
+			level = cache[path] = { folders: [], files: [], nextToken: null, loading: true, error: null };
+		} else {
+			level.loading = true;
+			level.error = null;
+		}
+		var url = '/api/console/storages/' + encodeURIComponent(s.name) + '/objects?path=' + encodeURIComponent(path) +
+			(token ? '&token=' + encodeURIComponent(token) : '');
+		api(url).then(function (r) {
+			level.folders = token ? level.folders.concat(r.folders) : r.folders;
+			level.files = token ? level.files.concat(r.files) : r.files;
+			level.nextToken = r.nextToken;
+		}, function (e) {
+			level.error = e.message;
+		}).then(function () {
+			level.loading = false;
+			if (state.bucket[s.name] === cache && cache[path] === level) renderStorages();
+		});
+	}
+
+	var dialog = $('storageDialog');
+	var editing = null;           // the storage being edited, or null when adding
+
+	function field(id) { return $(id); }
+
+	function showFormError(id, message) {
+		var box = $(id);
+		box.textContent = message || '';
+		box.hidden = !message;
+	}
+
+	function openStorageForm(storage) {
+		editing = storage || null;
+		var form = $('storageForm');
+		form.reset();
+		showFormError('storageError', '');
+		showTest('', true);
+		$('storageTitle').textContent = editing ? 'Edit ' + editing.name : 'Add S3 storage';
+		$('stName').value = editing ? editing.name : '';
+		$('stName').disabled = !!editing;
+		$('stBucket').value = editing ? editing.bucket : '';
+		$('stRegion').value = editing ? editing.region : '';
+		$('stPrefix').value = editing ? editing.pathPrefix : '';
+		$('stKey').value = editing ? editing.accessKeyId : '';
+		$('stSecret').value = '';
+		$('stSecret').required = false;
+		var hasSecret = !!(editing && !editing.anonymous);
+		$('stSecret').placeholder = hasSecret ? 'Leave empty to keep the current secret' : '';
+		$('stSecretHelp').textContent = hasSecret && editing.secretReadable === false ? 'The saved secret cannot be read any more. Type it again.' : hasSecret ? 'A secret is stored. Type a new one only to replace it.' : 'Stored encrypted. It is never shown again.';
+		$('stEndpoint').value = editing && editing.endpoint ? editing.endpoint : '';
+		$('stStyle').value = editing && editing.endpoint ? editing.urlStyle : '';
+		$('stSsl').checked = editing ? editing.useSsl : true;
+		$('stAdvanced').open = !!(editing && editing.endpoint);
+		$('storageSave').disabled = false;
+		dialog.showModal();
+		(editing ? $('stBucket') : $('stName')).focus();
+	}
+
+	function readForm() {
+		var body = {
+			name: $('stName').value.trim(),
+			bucket: $('stBucket').value.trim(),
+			region: $('stRegion').value.trim(),
+			pathPrefix: $('stPrefix').value.trim(),
+			accessKeyId: $('stKey').value.trim(),
+			secretAccessKey: $('stSecret').value,
+			endpoint: $('stEndpoint').value.trim(),
+			urlStyle: $('stStyle').value,
+			useSsl: $('stSsl').checked
+		};
+		return body;
+	}
+
+	$('addStorageBtn').addEventListener('click', function () { openStorageForm(null); });
+	$('refreshStorageBtn').addEventListener('click', function () {
+		state.bucket = {};
+		state.storageWarning = null;
+		loadStorages();
+	});
+
+	// Test connection: tries the values of the form without saving them
+	function showTest(message, ok) {
+		var box = $('storageTestResult');
+		box.textContent = message || '';
+		box.hidden = !message;
+		box.className = 'test-result ' + (ok ? 'ok' : 'bad');
+	}
+
+	$('storageTest').addEventListener('click', function () {
+		showFormError('storageError', '');
+		showTest('Connecting…', true);
+		var btn = $('storageTest');
+		btn.disabled = true;
+		var body = readForm();
+		body.name = editing ? editing.name : body.name;
+		api('/api/console/storages/test', { method: 'POST', body: body }).then(function (r) {
+			showTest(r.message, r.ok);
+		}, function (e) {
+			showTest(e.message, false);
+		}).then(function () { btn.disabled = false; });
+	});
+	$('storageForm').addEventListener('input', function () { showTest('', true); });
+	$('storageCancel').addEventListener('click', function () { dialog.close(); });
+
+	$('storageForm').addEventListener('submit', function (event) {
+		event.preventDefault();
+		showFormError('storageError', '');
+		var body = readForm();
+		var save = $('storageSave');
+		save.disabled = true;
+		var request = editing
+			? api('/api/console/storages/' + encodeURIComponent(editing.name), { method: 'PUT', body: body })
+			: api('/api/console/storages', { method: 'POST', body: body });
+		request.then(function (saved) {
+			state.storageWarning = saved && saved.warning ? saved.warning : null;
+			delete state.bucket[editing ? editing.name : body.name];
+			dialog.close();
+			return loadStorages();
+		}, function (e) {
+			showFormError('storageError', e.message);
+			if (/endpoint|url style/i.test(e.message)) $('stAdvanced').open = true;
+		}).then(function () { save.disabled = false; });
+	});
+
+	var removeDialog = $('removeDialog');
+	var removing = null;
+
+	function openRemove(storage) {
+		removing = storage;
+		showFormError('removeError', '');
+		$('removeText').textContent = 'Remove "' + storage.name + '" (' + storage.url + ')? Its saved keys are deleted. The files in the bucket are not touched.';
+		$('removeConfirm').disabled = false;
+		removeDialog.showModal();
+		$('removeCancel').focus();
+	}
+
+	$('removeCancel').addEventListener('click', function () { removeDialog.close(); });
+	$('removeForm').addEventListener('submit', function (event) {
+		event.preventDefault();
+		var confirm = $('removeConfirm');
+		confirm.disabled = true;
+		api('/api/console/storages/' + encodeURIComponent(removing.name), { method: 'DELETE' }).then(function (done) {
+			state.storageWarning = done && done.warning ? done.warning : null;
+			delete state.bucket[removing.name];
+			removeDialog.close();
+			return loadStorages();
+		}, function (e) {
+			showFormError('removeError', e.message);
+		}).then(function () { confirm.disabled = false; });
+	});
+
+	// A click on the dark backdrop closes a dialog
+	[dialog, removeDialog].forEach(function (d) {
+		d.addEventListener('mousedown', function (event) { if (event.target === d) d.close(); });
+	});
+
 	// ---------- editor ----------
 
 	var sqlBox = $('sql');
@@ -353,6 +651,45 @@
 
 	// ---------- run and show results ----------
 
+	function runQuery() { run(); }
+
+	/** Random id for a query, so it can be killed before its answer arrives (crypto.randomUUID needs https). */
+	function newQueryId() {
+		var bytes = new Uint8Array(16);
+		window.crypto.getRandomValues(bytes);
+		var hex = Array.prototype.map.call(bytes, function (b) { return (b < 16 ? '0' : '') + b.toString(16); }).join('');
+		return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
+	}
+
+	function setRunning(on) {
+		state.running = on;
+		$('runBtn').disabled = on;
+		var kill = $('killBtn');
+		kill.hidden = !on;
+		kill.disabled = false;
+		kill.lastChild.textContent = 'Kill';
+	}
+
+	function killQuery(id) {
+		return api('/api/console/queries/' + encodeURIComponent(id) + '/cancel', { method: 'POST' });
+	}
+
+	$('killBtn').addEventListener('click', function () {
+		if (!state.running || !state.queryId) return;
+		var kill = $('killBtn');
+		kill.disabled = true;
+		kill.lastChild.textContent = 'Killing…';
+		setStatus('Cancelling…');
+		killQuery(state.queryId).catch(function (e) {
+			// 404: it finished in the meantime, its result is on its way
+			if (e.status !== 404) {
+				kill.disabled = false;
+				kill.lastChild.textContent = 'Kill';
+				setStatus('Running…', ' (could not cancel: ' + e.message + ')');
+			}
+		});
+	});
+
 	function run() {
 		if (state.running) return;
 		var text = sqlBox.value;
@@ -363,12 +700,13 @@
 			return;
 		}
 
-		state.running = true;
-		$('runBtn').disabled = true;
+		var queryId = newQueryId();
+		state.queryId = queryId;
+		setRunning(true);
 		setStatus('Running…');
 		var started = performance.now();
 
-		api('/api/console/query', { method: 'POST', body: { sql: sql, maxRows: parseInt($('maxRows').value, 10) } })
+		api('/api/console/query', { method: 'POST', body: { sql: sql, maxRows: parseInt($('maxRows').value, 10), queryId: queryId } })
 			.then(function (result) {
 				result.clientMs = Math.round(performance.now() - started);
 				state.result = result;
@@ -377,11 +715,12 @@
 					loadCatalog(false); // the script may have changed the structure
 				}
 			}, function (e) {
-				showError(e.message);
+				if (e.data && e.data.cancelled) showCancelled(e.message, /;\s*\S/.test(sql)); // more than one statement
+				else showError(e.message);
 			})
 			.then(function () {
-				state.running = false;
-				$('runBtn').disabled = false;
+				state.queryId = null;
+				setRunning(false);
 			});
 	}
 
@@ -405,6 +744,128 @@
 		body.textContent = '';
 		body.appendChild(el('div', { class: 'error-box', role: 'alert', text: message }));
 	}
+
+	function showCancelled(message, script) {
+		state.result = null;
+		state.renderId++;
+		setStatus('Cancelled');
+		$('copyBtn').hidden = true;
+		$('csvBtn').hidden = true;
+		var body = $('resultBody');
+		body.textContent = '';
+		body.appendChild(el('div', { class: 'cancel-box', role: 'status', text: message + (script ? ' The statements of the script that ran before it are not undone.' : '') }));
+	}
+
+	// ---------- running queries ----------
+
+	var queriesDialog = $('queriesDialog');
+	var queriesTimer = null;
+	var killing = new Set();       // ids whose Kill was clicked in the popup
+
+	function formatDuration(ms) {
+		var s = Math.floor(ms / 1000);
+		if (s < 60) return (ms < 10000 ? (ms / 1000).toFixed(1) : String(s)) + ' s';
+		var m = Math.floor(s / 60);
+		if (m < 60) return m + ' min ' + (s % 60) + ' s';
+		return Math.floor(m / 60) + ' h ' + (m % 60) + ' min';
+	}
+
+	function formatTime(iso) {
+		var d = new Date(iso);
+		return isNaN(d) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+	}
+
+	function loadQueries() {
+		var btn = $('queriesRefresh');
+		btn.classList.add('busy');
+		return api('/api/console/queries').then(function (r) {
+			showFormError('queriesError', '');
+			renderQueries(r);
+		}, function (e) {
+			showFormError('queriesError', e.message);
+		}).then(function () { btn.classList.remove('busy'); });
+	}
+
+	function renderQueries(r) {
+		var box = $('queriesList');
+		var focused = document.activeElement && box.contains(document.activeElement) ? document.activeElement.getAttribute('data-id') : null;
+		$('queriesScope').textContent = r.allUsers ? 'All users (you are an admin)' : 'Your queries';
+		box.textContent = '';
+		var live = new Set(r.queries.map(function (q) { return q.id; }));
+		killing.forEach(function (id) { if (!live.has(id)) killing.delete(id); });
+
+		if (r.queries.length === 0) {
+			box.appendChild(el('div', { class: 'queries-empty', text: r.allUsers ? 'No query is running on the server.' : 'You have no query running.' }));
+			return;
+		}
+
+		var head = el('tr', {}, []);
+		var cols = (r.allUsers ? [['User', 'w-user']] : []).concat([['Source', 'w-source'], ['Started', 'w-time'],
+			['Running for', 'w-time'], ['SQL', ''], ['', 'w-action']]);
+		cols.forEach(function (c) {
+			var th = el('th', { text: c[0] });
+			if (c[1]) th.className = c[1];
+			if (!c[0]) th.setAttribute('aria-label', 'Kill');
+			head.appendChild(th);
+		});
+		var tbody = el('tbody');
+		r.queries.forEach(function (q) {
+			var mine = q.id === state.queryId;
+			var tr = el('tr', { class: q.state === 'cancelling' ? 'is-cancelling' : '' });
+			if (r.allUsers) tr.appendChild(el('td', { class: 'q-user', text: q.user }));
+			var source = el('td', { class: 'q-source', text: q.source });
+			if (mine) source.appendChild(el('span', { class: 'q-tag', text: 'this tab' }));
+			tr.appendChild(source);
+			tr.appendChild(el('td', { class: 'q-time', text: formatTime(q.startedAt) }));
+			tr.appendChild(el('td', { class: 'q-time num', text: formatDuration(q.elapsedMs) }));
+			var sqlText = q.sql.replace(/\s+/g, ' ').trim();
+			tr.appendChild(el('td', { class: 'q-sql', title: q.sql, text: sqlText }));
+			var pending = q.state === 'cancelling' || killing.has(q.id);
+			var kill = el('button', { type: 'button', class: 'btn kill small', 'data-id': q.id,
+				'aria-label': 'Kill the query of ' + q.user + ' started at ' + formatTime(q.startedAt) }, [icon('i-stop'), document.createTextNode(pending ? 'Killing…' : 'Kill')]);
+			kill.disabled = pending;
+			kill.addEventListener('click', function () {
+				killing.add(q.id);
+				kill.disabled = true;
+				kill.lastChild.textContent = 'Killing…';
+				if (mine) setStatus('Cancelling…');
+				killQuery(q.id).then(loadQueries, function (e) {
+					killing.delete(q.id);
+					if (e.status === 404) { loadQueries(); return; } // it finished meanwhile
+					showFormError('queriesError', e.message);
+					kill.disabled = false;
+					kill.lastChild.textContent = 'Kill';
+				});
+			});
+			tr.appendChild(el('td', { class: 'q-action' }, [kill]));
+			tbody.appendChild(tr);
+		});
+		box.appendChild(el('table', { class: 'grid queries' }, [el('thead', {}, [head]), tbody]));
+		if (focused) {
+			var again = box.querySelector('[data-id="' + cssEscape(focused) + '"]');
+			if (again) again.focus();
+		}
+	}
+
+	function stopQueriesTimer() {
+		if (queriesTimer) clearInterval(queriesTimer);
+		queriesTimer = null;
+	}
+
+	$('queriesBtn').addEventListener('click', function () {
+		$('queriesList').textContent = '';
+		$('queriesList').appendChild(el('div', { class: 'queries-empty', text: 'Loading…' }));
+		showFormError('queriesError', '');
+		queriesDialog.showModal();
+		$('queriesClose').focus();
+		loadQueries();
+		stopQueriesTimer();
+		queriesTimer = setInterval(function () { if (!document.hidden) loadQueries(); }, 2000);
+	});
+	$('queriesRefresh').addEventListener('click', loadQueries);
+	$('queriesClose').addEventListener('click', function () { queriesDialog.close(); });
+	queriesDialog.addEventListener('close', stopQueriesTimer);
+	queriesDialog.addEventListener('mousedown', function (event) { if (event.target === queriesDialog) queriesDialog.close(); });
 
 	function showResult(r) {
 		var body = $('resultBody');
@@ -525,6 +986,18 @@
 		var h = $('main').getBoundingClientRect().height;
 		$('main').style.setProperty('--editor-height', clamp(px, 110, Math.max(110, h - 140)) + 'px');
 	}
+
+	function setStructure(px) {
+		var h = $('side').getBoundingClientRect().height;
+		$('side').style.setProperty('--structure-height', clamp(px, 120, Math.max(120, h - 110)) + 'px');
+	}
+
+	drag($('splitSide'), function (event) { setStructure(event.clientY - $('side').getBoundingClientRect().top); });
+	$('splitSide').addEventListener('keydown', function (event) {
+		var height = $('structure').getBoundingClientRect().height;
+		if (event.key === 'ArrowUp') { setStructure(height - 24); event.preventDefault(); }
+		if (event.key === 'ArrowDown') { setStructure(height + 24); event.preventDefault(); }
+	});
 
 	drag($('splitV'), function (event) { setSide(event.clientX - $('workspace').getBoundingClientRect().left); });
 	drag($('splitH'), function (event) { setEditor(event.clientY - $('main').getBoundingClientRect().top); });

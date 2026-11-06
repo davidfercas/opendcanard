@@ -91,6 +91,7 @@ docker run -d --name opencanard \
 | Volumes | `/opt/opencanard/data`, `/opt/opencanard/metadata`, `/opt/opencanard/logs`. Keep at least the first two, or the databases (and the users) are lost with the container. |
 | Memory | `-e OPENCANARD_XMX=4g` (default `2g`) and `-e OPENCANARD_XMS=1g` (default `512m`). Give the container more memory than the heap, for example `--memory 5g`. |
 | Extra JVM options | `-e OPENCANARD_JAVA_OPTS="..."`. |
+| Storage key | Generated in `/opt/opencanard/metadata/storage.key`, so the `opencanard-metadata` volume keeps it. To keep it elsewhere, pass `-e OPENCANARD_STORAGE_KEY=<passphrase>`. See [Configuration](configuration.md#storage-encryption-key). |
 | Configuration | The defaults are baked into the image. To change them, bind-mount a directory containing `opencanard.properties` and `log4j2.xml` over `/opt/opencanard/conf`. Copy both files from `opencanard-server/src/conf/` first, because a mounted directory replaces the defaults. |
 | Health | The image has a `HEALTHCHECK` that calls `GET /health` on port `8084`. If you change `opencanard.rest.port`, override it. |
 

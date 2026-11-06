@@ -14,6 +14,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.duckdb.DuckDBResultSet;
 
+import io.opencanard.query.RunningQueries;
+
 import java.io.InputStream;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -61,39 +63,60 @@ public final class DuckDBArrowUtil {
 	 * returns rows is run again by {@link #streamQuery} to stream them.
 	 */
 	public static Outcome run(Connection conn, String sql) throws Exception {
+		return run(conn, sql, null);
+	}
+
+	/** Same as {@link #run(Connection, String)}, cancellable through {@code query} (may be null). */
+	public static Outcome run(Connection conn, String sql, RunningQueries.Query query) throws Exception {
 		try (Statement stmt = conn.createStatement()) {
-			boolean first = stmt.execute(sql);
-			int updateCount = stmt.getUpdateCount();
-			// The JDBC driver's answer is not trusted alone: a plain INSERT / UPDATE / DELETE / CREATE... never
-			// has rows to stream, and streaming it would run executeQuery on it and fail.
-			boolean update = !first || (WRITE_STATEMENT.matcher(sql).find() && !RETURNING.matcher(sql).find());
-			logger.info("[flight-sql] execute() returned {}, update count {}, treated as {}: {}", first, updateCount,
-					update ? "UPDATE" : "QUERY", abbreviate(sql));
-
-			if (!update) {
-				try (ResultSet rs = stmt.getResultSet()) {
-					JdbcToArrowConfig config = new JdbcToArrowConfigBuilder().setAllocator(new RootAllocator())
-							.setTargetBatchSize(1024).build();
-					return new Outcome(JdbcToArrowUtils.jdbcToArrowSchema(rs.getMetaData(), config), -1);
+			if (query != null) {
+				query.attach(stmt);
+			}
+			try {
+				return runOn(stmt, sql);
+			} finally {
+				if (query != null) {
+					query.detach(stmt);
 				}
 			}
-
-			long count = Math.max(updateCount, 0);
-			if (first && count == 0) {
-				// Some DuckDB versions report the changed rows as a one-row result set named "Count"
-				try (ResultSet rs = stmt.getResultSet()) {
-					if (rs != null && rs.next()) {
-						count = rs.getLong(1);
-					}
-				} catch (Exception ignored) {
-					// no result set to read
-				}
+		} catch (java.sql.SQLException e) {
+			java.sql.SQLException shown = query == null ? e : query.explain(e);
+			if (shown == e) {
+				logger.error("Error running {}", sql, e);
 			}
-			return new Outcome(null, count);
-		} catch (Exception e) {
-			logger.error("Error running {}", sql, e);
-			throw e;
+			throw shown;
 		}
+	}
+
+	private static Outcome runOn(Statement stmt, String sql) throws Exception {
+		boolean first = stmt.execute(sql);
+		int updateCount = stmt.getUpdateCount();
+		// The JDBC driver's answer is not trusted alone: a plain INSERT / UPDATE / DELETE / CREATE... never
+		// has rows to stream, and streaming it would run executeQuery on it and fail.
+		boolean update = !first || (WRITE_STATEMENT.matcher(sql).find() && !RETURNING.matcher(sql).find());
+		logger.info("[flight-sql] execute() returned {}, update count {}, treated as {}: {}", first, updateCount,
+				update ? "UPDATE" : "QUERY", abbreviate(sql));
+
+		if (!update) {
+			try (ResultSet rs = stmt.getResultSet()) {
+				JdbcToArrowConfig config = new JdbcToArrowConfigBuilder().setAllocator(new RootAllocator())
+						.setTargetBatchSize(1024).build();
+				return new Outcome(JdbcToArrowUtils.jdbcToArrowSchema(rs.getMetaData(), config), -1);
+			}
+		}
+
+		long count = Math.max(updateCount, 0);
+		if (first && count == 0) {
+			// Some DuckDB versions report the changed rows as a one-row result set named "Count"
+			try (ResultSet rs = stmt.getResultSet()) {
+				if (rs != null && rs.next()) {
+					count = rs.getLong(1);
+				}
+			} catch (Exception ignored) {
+				// no result set to read
+			}
+		}
+		return new Outcome(null, count);
 	}
 
 	/** Statements that change data or settings and never return rows (unless they have RETURNING). */
@@ -129,36 +152,64 @@ public final class DuckDBArrowUtil {
 	// Stream query to Flight
 	public static void streamQuery(Connection conn, String sql, FlightProducer.ServerStreamListener listener)
 			throws Exception {
+		streamQuery(conn, sql, listener, null);
+	}
 
-		boolean completed = false;
+	/**
+	 * Same as {@link #streamQuery(Connection, String, FlightProducer.ServerStreamListener)}, cancellable through
+	 * {@code query} (may be null) while it executes and while its batches are sent.
+	 */
+	public static void streamQuery(Connection conn, String sql, FlightProducer.ServerStreamListener listener,
+			RunningQueries.Query query) throws Exception {
 
-		try (Statement stmt = conn.createStatement();
-				// Cast the result set to DuckDBResultSet to access native Arrow methods
-				DuckDBResultSet rs = (DuckDBResultSet) stmt.executeQuery(sql)) {
-
-			// This is the "magic" method that uses the loaded 'arrow' extension
-			BufferAllocator allocator = new RootAllocator();
-			try (ArrowReader reader = (ArrowReader) rs.arrowExportStream(allocator, 1024)) {
-			    VectorSchemaRoot root = reader.getVectorSchemaRoot();
-			    listener.start(root);
-
-			    while (!listener.isCancelled() && reader.loadNextBatch()) {
-			        // Only send if batch has rows
-			        if (root.getRowCount() > 0) {
-			            listener.putNext();
-			        }
-			    }
-
-			    if (!listener.isCancelled()) {
-			        listener.completed();
-			    }
-			} catch (Exception e) {
-			    logger.error("Flight server error", e);
-			    listener.error(CallStatus.INTERNAL
-			                   .withCause(e)
-			                   .withDescription(e.getMessage())
-			                   .toRuntimeException());
+		try (Statement stmt = conn.createStatement()) {
+			if (query != null) {
+				query.attach(stmt);
 			}
+			try (DuckDBResultSet rs = executeQuery(stmt, sql, query)) {
+				// This is the "magic" method that uses the loaded 'arrow' extension
+				BufferAllocator allocator = new RootAllocator();
+				try (ArrowReader reader = (ArrowReader) rs.arrowExportStream(allocator, 1024)) {
+					VectorSchemaRoot root = reader.getVectorSchemaRoot();
+					listener.start(root);
+
+					while (!listener.isCancelled() && reader.loadNextBatch()) {
+						// Only send if batch has rows
+						if (root.getRowCount() > 0) {
+							listener.putNext();
+						}
+					}
+
+					if (!listener.isCancelled()) {
+						listener.completed();
+					}
+				} catch (Exception e) {
+					if (query != null && query.isCancelled()) {
+						logger.info("[flight-sql] query {} cancelled by '{}' while streaming", query.getId(),
+								query.cancelledBy());
+						listener.error(CallStatus.CANCELLED.withDescription(query.cancelledException().getMessage())
+								.toRuntimeException());
+					} else {
+						logger.error("Flight server error", e);
+						listener.error(CallStatus.INTERNAL.withCause(e).withDescription(e.getMessage())
+								.toRuntimeException());
+					}
+				}
+			} finally {
+				if (query != null) {
+					query.detach(stmt);
+				}
+			}
+		}
+	}
+
+	// Cast the result set to DuckDBResultSet to access native Arrow methods
+	private static DuckDBResultSet executeQuery(Statement stmt, String sql, RunningQueries.Query query)
+			throws java.sql.SQLException {
+		try {
+			return (DuckDBResultSet) stmt.executeQuery(sql);
+		} catch (java.sql.SQLException e) {
+			throw query == null ? e : query.explain(e);
 		}
 	}
 }

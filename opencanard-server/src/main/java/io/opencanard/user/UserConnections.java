@@ -7,6 +7,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.duckdb.DuckDBConnection;
 
+import io.opencanard.storage.StorageService;
+
 /**
  * Decides which database a login works on, for every entry point that runs SQL on behalf of a user
  * (Arrow Flight and the web console):
@@ -16,6 +18,8 @@ import org.duckdb.DuckDBConnection;
  * <li>a login without a registered database is refused with {@link NoDatabaseException}: there is no
  * shared fallback.</li>
  * </ul>
+ * Before a connection is returned, the S3 storages of the login are registered in it (see
+ * {@link StorageService#apply}), so queries on {@code s3://bucket/...} use the user's own credentials.
  * Each call returns a new connection (a duplicate of the open database), which the caller closes. Closing it
  * never closes the underlying database.
  */
@@ -34,15 +38,38 @@ public class UserConnections {
 
 	private final Connection metadatadb;
 	private final UserDatabases userDatabases;
+	private final StorageService storages;
 	private final UserRepository userRepository = new UserRepository();
 
-	public UserConnections(Connection metadatadb, UserDatabases userDatabases) {
+	public UserConnections(Connection metadatadb, UserDatabases userDatabases, StorageService storages) {
 		this.metadatadb = metadatadb;
 		this.userDatabases = userDatabases;
+		this.storages = storages;
 	}
 
 	/** A new connection to the database of the login. The caller must close it. */
 	public Connection open(String login) throws SQLException {
+		Connection conn = openWithoutStorages(login);
+		try {
+			storages.apply(conn, login);
+		} catch (Exception e) {
+			// the connection is still good for everything that does not touch S3
+			logger.warn("Cannot register the S3 storages of '{}': {}", login, e.getMessage());
+		}
+		return conn;
+	}
+
+	/**
+	 * Registers the S3 storages of the login in its database now, so they work from the next query on, and reports
+	 * why when that is not possible (for example, the DuckDB httpfs extension cannot be installed).
+	 */
+	public void registerStorages(String login) throws SQLException {
+		try (Connection conn = openWithoutStorages(login)) {
+			storages.apply(conn, login);
+		}
+	}
+
+	private Connection openWithoutStorages(String login) throws SQLException {
 		if (isAdmin(login)) {
 			logger.debug("'{}' is an admin and uses the metadata database", login);
 			return ((DuckDBConnection) metadatadb).duplicate();

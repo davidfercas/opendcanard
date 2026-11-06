@@ -19,6 +19,7 @@ import io.javalin.openapi.OpenApiResponse;
 import io.javalin.openapi.OpenApiSecurity;
 import io.opencanard.console.CatalogReader;
 import io.opencanard.console.QueryRunner;
+import io.opencanard.query.RunningQueries;
 import io.opencanard.user.UserConnections;
 
 /**
@@ -31,9 +32,11 @@ public class ConsoleController {
 	private static final Logger logger = LogManager.getLogger(ConsoleController.class);
 
 	private final UserConnections userConnections;
+	private final RunningQueries runningQueries;
 
-	public ConsoleController(UserConnections userConnections) {
+	public ConsoleController(UserConnections userConnections, RunningQueries runningQueries) {
 		this.userConnections = userConnections;
+		this.runningQueries = runningQueries;
 	}
 
 	@OpenApi(path = "/api/console/session", methods = HttpMethod.GET, summary = "Who is connected to the console",
@@ -100,7 +103,51 @@ public class ConsoleController {
 			return;
 		}
 		int maxRows = QueryRunner.clampMaxRows(request.maxRows);
-		withConnection(ctx, conn -> ctx.json(QueryRunner.run(conn, request.sql, maxRows)));
+		String login = login(ctx);
+		withConnection(ctx, conn -> {
+			// finish() runs before withConnection closes the connection: a cancel never reaches a closed one
+			RunningQueries.Query running = runningQueries.start(login, RunningQueries.Source.CONSOLE, request.sql,
+					request.queryId);
+			try {
+				ctx.json(QueryRunner.run(conn, request.sql, maxRows, running));
+			} finally {
+				runningQueries.finish(running);
+			}
+		});
+	}
+
+	@OpenApi(path = "/api/console/queries", methods = HttpMethod.GET, summary = "Queries running now",
+			description = "Queries of the web console and of Arrow Flight clients that have not finished yet, oldest "
+					+ "first. An admin sees the queries of every user; any other user only their own.",
+			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Console" },
+			responses = { @OpenApiResponse(status = "200", content = @OpenApiContent(from = Map.class)),
+					@OpenApiResponse(status = "401", description = "Missing or invalid credentials") })
+	public void runningQueries(Context ctx) {
+		String login = login(ctx);
+		boolean admin = userConnections.isAdmin(login);
+		Map<String, Object> out = new LinkedHashMap<>();
+		out.put("allUsers", admin);
+		out.put("queries", runningQueries.list(login, admin));
+		ctx.json(out);
+	}
+
+	@OpenApi(path = "/api/console/queries/{id}/cancel", methods = HttpMethod.POST, summary = "Kill a running query",
+			description = "Interrupts the query. It ends shortly afterwards with the error \"The query was cancelled\"."
+					+ " Users can cancel their own queries; admins can cancel any query.",
+			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Console" },
+			pathParams = { @OpenApiParam(name = "id", required = true) },
+			responses = { @OpenApiResponse(status = "202", description = "The query is being cancelled"),
+					@OpenApiResponse(status = "401", description = "Missing or invalid credentials"),
+					@OpenApiResponse(status = "404", description = "No running query with that id that the user may cancel; it may have finished") })
+	public void cancelQuery(Context ctx) {
+		String login = login(ctx);
+		boolean admin = userConnections.isAdmin(login);
+		if (runningQueries.cancel(ctx.pathParam("id"), login, admin) == RunningQueries.CancelResult.CANCELLED) {
+			ctx.status(202);
+			ctx.json(Map.of("status", "cancelling"));
+		} else {
+			error(ctx, 404, "That query is not running any more");
+		}
 	}
 
 	private interface Action {
@@ -113,7 +160,19 @@ public class ConsoleController {
 			action.run(conn);
 		} catch (UserConnections.NoDatabaseException e) {
 			error(ctx, 403, e.getMessage());
-		} catch (SQLException | IllegalArgumentException e) {
+		} catch (SQLException e) {
+			logger.info("Console request of '{}' failed: {}", login, e.getMessage());
+			if ("57014".equals(e.getSQLState())) {
+				// cancelled with the Kill button: not a SQL error, the browser shows it differently
+				Map<String, Object> body = new LinkedHashMap<>();
+				body.put("error", e.getMessage());
+				body.put("cancelled", true);
+				ctx.status(400);
+				ctx.json(body);
+				return;
+			}
+			error(ctx, 400, e.getMessage());
+		} catch (IllegalArgumentException e) {
 			logger.info("Console request of '{}' failed: {}", login, e.getMessage());
 			error(ctx, 400, e.getMessage());
 		} catch (Exception e) {

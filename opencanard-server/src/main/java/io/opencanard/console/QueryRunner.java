@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
+import io.opencanard.query.RunningQueries;
+
 /**
  * Runs the SQL typed in the web console on one connection and describes what happened in a structure the
  * browser shows directly:
@@ -52,6 +54,15 @@ public final class QueryRunner {
 	 * @throws SQLException             if a statement fails; the message names the statement when there are several
 	 */
 	public static Map<String, Object> run(Connection conn, String script, int maxRows) throws SQLException {
+		return run(conn, script, maxRows, null);
+	}
+
+	/**
+	 * Same as {@link #run(Connection, String, int)}, with each statement attached to {@code query} while it runs
+	 * so it can be cancelled; a cancelled script stops and fails with "The query was cancelled".
+	 */
+	public static Map<String, Object> run(Connection conn, String script, int maxRows, RunningQueries.Query query)
+			throws SQLException {
 		List<String> statements = SqlSplitter.split(script);
 		if (statements.isEmpty()) {
 			throw new IllegalArgumentException("There is no SQL to run");
@@ -62,11 +73,14 @@ public final class QueryRunner {
 		for (int i = 0; i < statements.size(); i++) {
 			boolean last = i == statements.size() - 1;
 			try {
-				Map<String, Object> one = runOne(conn, statements.get(i), last ? maxRows : 1);
+				Map<String, Object> one = runOne(conn, statements.get(i), last ? maxRows : 1, query);
 				if (last) {
 					result = one;
 				}
 			} catch (SQLException e) {
+				if (query != null && query.isCancelled()) {
+					throw query.cancelledException();
+				}
 				if (statements.size() > 1) {
 					throw new SQLException("Statement " + (i + 1) + " of " + statements.size() + " failed: " + e.getMessage(),
 							e.getSQLState(), e);
@@ -80,25 +94,39 @@ public final class QueryRunner {
 		return result;
 	}
 
-	private static Map<String, Object> runOne(Connection conn, String sql, int maxRows) throws SQLException {
+	private static Map<String, Object> runOne(Connection conn, String sql, int maxRows, RunningQueries.Query query)
+			throws SQLException {
 		Map<String, Object> out = new LinkedHashMap<>();
 		try (Statement stmt = conn.createStatement()) {
-			if (stmt.execute(sql)) {
-				try (ResultSet rs = stmt.getResultSet()) {
-					readRows(rs, maxRows, out);
+			if (query != null) {
+				query.attach(stmt);
+			}
+			try {
+				runOn(stmt, sql, maxRows, out);
+			} finally {
+				if (query != null) {
+					query.detach(stmt);
 				}
-			} else {
-				int count = stmt.getUpdateCount();
-				out.put("columns", new ArrayList<>());
-				out.put("rows", new ArrayList<>());
-				out.put("rowCount", 0);
-				out.put("truncated", false);
-				out.put("updateCount", Math.max(count, 0));
-				out.put("message", DML.matcher(sql).find() ? rowsText(Math.max(count, 0)) + " affected"
-						: "Statement executed");
 			}
 		}
 		return out;
+	}
+
+	private static void runOn(Statement stmt, String sql, int maxRows, Map<String, Object> out) throws SQLException {
+		if (stmt.execute(sql)) {
+			try (ResultSet rs = stmt.getResultSet()) {
+				readRows(rs, maxRows, out);
+			}
+		} else {
+			int count = stmt.getUpdateCount();
+			out.put("columns", new ArrayList<>());
+			out.put("rows", new ArrayList<>());
+			out.put("rowCount", 0);
+			out.put("truncated", false);
+			out.put("updateCount", Math.max(count, 0));
+			out.put("message", DML.matcher(sql).find() ? rowsText(Math.max(count, 0)) + " affected"
+					: "Statement executed");
+		}
 	}
 
 	private static void readRows(ResultSet rs, int maxRows, Map<String, Object> out) throws SQLException {

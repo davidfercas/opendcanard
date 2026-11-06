@@ -46,9 +46,13 @@ import io.opencanard.auth.OpenCanardAuthenticator;
 import io.opencanard.conf.Config;
 import io.opencanard.rest.RestApiServer;
 import io.opencanard.user.DatabaseRegistry;
+import io.opencanard.storage.SecretBox;
+import io.opencanard.storage.StorageRepository;
+import io.opencanard.storage.StorageService;
 import io.opencanard.user.UserConnections;
 import io.opencanard.user.UserDatabases;
 import io.opencanard.user.UserService;
+import io.opencanard.query.RunningQueries;
 import io.opencanard.util.DuckDBArrowUtil;
 
 public class OpenCanardServer implements FlightProducer, AutoCloseable {
@@ -61,6 +65,8 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	// One DuckDB file per user created through the API: <data.dir>/users/<login>.duckdb
 	private final UserDatabases userDatabases;
 	private final UserConnections userConnections;
+	// Queries running now, from Flight and the web console, so they can be listed and cancelled
+	private final RunningQueries runningQueries = new RunningQueries();
 	
 	
 	
@@ -214,9 +220,22 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		this.userDatabases = new UserDatabases(Paths.get(DATA_DIR, "users"), this.metadatadb);
 		this.userDatabases.reconcile();
 		UserService userService = new UserService(this.metadatadb, this.userDatabases);
-		this.userConnections = new UserConnections(this.metadatadb, this.userDatabases);
+		StorageService storageService;
+		try {
+			// key: env OPENCANARD_STORAGE_KEY, property opencanard.storage.key, or the file metadata/storage.key
+			// (created on first start; conf/storage.key of earlier versions is still honored)
+			String configuredKey = System.getenv("OPENCANARD_STORAGE_KEY");
+			if (configuredKey == null || configuredKey.isBlank()) {
+				configuredKey = Config.get("opencanard.storage.key");
+			}
+			storageService = new StorageService(this.metadatadb, SecretBox.open(configuredKey,
+					Paths.get(METADATA_DIR, "storage.key"), Paths.get(CONF_DIR, "storage.key")));
+		} catch (java.io.IOException e) {
+			throw new IllegalStateException("Cannot read or create the storage key in " + METADATA_DIR, e);
+		}
+		this.userConnections = new UserConnections(this.metadatadb, this.userDatabases, storageService);
 		this.restApi = new RestApiServer(this.duckdb, this.metadatadb, userService, this.userConnections,
-				Config.getInt("opencanard.rest.port"));
+				storageService, this.runningQueries, Config.getInt("opencanard.rest.port"));
 	}
 
 	/**
@@ -286,6 +305,22 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 						stmt.execute(DatabaseRegistry.CREATE_TABLE);
 					}
 					logger.info("[metadata-init] table opencanard_databases created");
+				}
+
+				// 1c. opencanard_storages table (S3 storages of every user): create only if it does not exist
+				boolean storageTableExists;
+				try (Statement stmt = conn.createStatement();
+						ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM information_schema.tables "
+								+ "WHERE table_schema = 'main' AND table_name = 'opencanard_storages'")) {
+					storageTableExists = rs.next() && rs.getInt(1) > 0;
+				}
+				if (storageTableExists) {
+					logger.info("[metadata-init] table opencanard_storages already exists, skipping creation");
+				} else {
+					try (Statement stmt = conn.createStatement()) {
+						stmt.execute(StorageRepository.CREATE_TABLE);
+					}
+					logger.info("[metadata-init] table opencanard_storages created");
 				}
 
 				// 2. admin user: insert only if the username is not already in the table
@@ -391,6 +426,11 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		return userConnections.open(context.peerIdentity());
 	}
 
+	/** A query stopped through {@link RunningQueries#cancel} (SQLSTATE 57014, "query canceled"). */
+	private static boolean isCancelled(Exception e) {
+		return e instanceof SQLException && "57014".equals(((SQLException) e).getSQLState());
+	}
+
 	// ============================
 	// FlightProducer interface
 	// ============================
@@ -406,7 +446,15 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		String sql = new String(descriptor.getCommand(), StandardCharsets.UTF_8);
 
 		try (Connection conn = connectionFor(context)) {
-			DuckDBArrowUtil.Outcome outcome = DuckDBArrowUtil.run(conn, sql);
+			DuckDBArrowUtil.Outcome outcome;
+			// finish() runs before the connection is closed: a cancel must never reach a closed connection
+			RunningQueries.Query query = runningQueries.start(context.peerIdentity(), RunningQueries.Source.FLIGHT,
+					sql, null);
+			try {
+				outcome = DuckDBArrowUtil.run(conn, sql, query);
+			} finally {
+				runningQueries.finish(query);
+			}
 			if (!outcome.returnsRows()) {
 				// CREATE / INSERT / UPDATE / DELETE...: already executed, nothing to stream. No endpoints and
 				// the number of affected rows in "records" tell the client it is an update.
@@ -419,6 +467,9 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 			return new FlightInfo(outcome.getSchema(), descriptor,
 					Collections.singletonList(new FlightEndpoint(ticket, server.getLocation())), -1, -1);
 		} catch (Exception e) {
+			if (isCancelled(e)) {
+				throw CallStatus.CANCELLED.withDescription(e.getMessage()).toRuntimeException();
+			}
 			logger.error(e);
 			throw CallStatus.INTERNAL.withCause(e).withDescription(e.getMessage()).toRuntimeException();
 		}
@@ -428,8 +479,18 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	public void getStream(CallContext context, Ticket ticket, ServerStreamListener listener) {
 		String sql = new String(ticket.getBytes(), StandardCharsets.UTF_8);
 		try (Connection conn = connectionFor(context)) {
-			DuckDBArrowUtil.streamQuery(conn, sql, listener);
+			RunningQueries.Query query = runningQueries.start(context.peerIdentity(), RunningQueries.Source.FLIGHT,
+					sql, null);
+			try {
+				DuckDBArrowUtil.streamQuery(conn, sql, listener, query);
+			} finally {
+				runningQueries.finish(query);
+			}
 		} catch (Exception e) {
+			if (isCancelled(e)) {
+				listener.error(CallStatus.CANCELLED.withDescription(e.getMessage()).toRuntimeException());
+				return;
+			}
 			logger.error(e);
 			listener.error(CallStatus.INTERNAL.withCause(e).withDescription(e.getMessage()).toRuntimeException());
 		}

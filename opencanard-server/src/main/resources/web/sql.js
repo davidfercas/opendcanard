@@ -82,7 +82,26 @@
 		return lines.join('\r\n') + '\r\n';
 	}
 
-	var api = { escapeHtml: escapeHtml, quoteIdent: quoteIdent, selectAll: selectAll, highlight: highlight,
+	/** A SELECT that reads a file of a bucket, or null for a type DuckDB cannot read directly. */
+	function sampleQuery(url, limit) {
+		var plain = String(url).replace(/\.(gz|zst)$/i, '');
+		var m = /\.([A-Za-z0-9]+)$/.exec(plain);
+		var fn = { parquet: 'read_parquet', csv: 'read_csv_auto', tsv: 'read_csv_auto', json: 'read_json_auto',
+			jsonl: 'read_json_auto', ndjson: 'read_json_auto' }[m ? m[1].toLowerCase() : ''];
+		if (!fn) return null;
+		return 'SELECT * FROM ' + fn + "('" + String(url).replace(/'/g, "''") + "') LIMIT " + (limit || 100) + ';';
+	}
+
+	function formatBytes(n) {
+		if (n < 1024) return n + ' B';
+		var units = ['KB', 'MB', 'GB', 'TB'];
+		var v = n / 1024;
+		var i = 0;
+		while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+		return v.toFixed(v >= 100 ? 0 : 1) + ' ' + units[i];
+	}
+
+	var api = { sampleQuery: sampleQuery, formatBytes: formatBytes, escapeHtml: escapeHtml, quoteIdent: quoteIdent, selectAll: selectAll, highlight: highlight,
 		cellText: cellText, isNumeric: isNumeric, toCsv: toCsv };
 	if (typeof module !== 'undefined' && module.exports) module.exports = api;
 	else root.SqlUtil = api;
