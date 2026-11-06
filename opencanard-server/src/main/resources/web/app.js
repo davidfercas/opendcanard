@@ -424,7 +424,14 @@
 		state.storages.forEach(function (s) {
 			var storageKey = key('s3', s.name, '');
 			var open = state.s3open.has(storageKey);
+			var reload = el('button', { type: 'button', class: 'icon-btn', title: 'Reload the contents of ' + s.name, 'aria-label': 'Reload the contents of ' + s.name }, [icon('i-refresh')]);
 			var edit = el('button', { type: 'button', class: 'icon-btn', title: 'Edit ' + s.name, 'aria-label': 'Edit ' + s.name }, [icon('i-edit')]);
+			reload.addEventListener('click', function () {
+				// forget what was listed for this bucket only; it opens and its open folders are listed again
+				delete state.bucket[s.name];
+				state.s3open.add(storageKey);
+				renderStorages();
+			});
 			var remove = el('button', { type: 'button', class: 'icon-btn', title: 'Remove ' + s.name, 'aria-label': 'Remove ' + s.name }, [icon('i-trash')]);
 			edit.addEventListener('click', function () { openStorageForm(s); });
 			remove.addEventListener('click', function () { openRemove(s); });
@@ -438,7 +445,7 @@
 				if (state.s3open.has(storageKey)) state.s3open.delete(storageKey); else state.s3open.add(storageKey);
 				renderStorages();
 			});
-			box.appendChild(el('div', { class: 'storage' }, [main, el('div', { class: 'actions' }, [edit, remove])]));
+			box.appendChild(el('div', { class: 'storage' }, [main, el('div', { class: 'actions' }, [reload, edit, remove])]));
 			if (open) {
 				var rows = [];
 				bucketRows(s, '', 1, rows);
@@ -595,11 +602,6 @@
 	}
 
 	$('addStorageBtn').addEventListener('click', function () { openStorageForm(null); });
-	$('refreshStorageBtn').addEventListener('click', function () {
-		state.bucket = {};
-		state.storageWarning = null;
-		loadStorages();
-	});
 
 	// Test connection: tries the values of the form without saving them
 	function showTest(message, ok) {

@@ -58,7 +58,8 @@ Removing a storage deletes its saved keys only, never the files in the bucket.
 Click a storage to open its bucket: folders and files appear under it, 200 per page (**Load more** gets the
 next ones). Files show their size; hover for the full `s3://` path and the date. The play button on a `.parquet`,
 `.csv`, `.tsv`, `.json`, `.jsonl` or `.ndjson` file (also with `.gz` or `.zst`) writes and runs a `SELECT` for it.
-The reload button next to **Add storage** forgets what was loaded.
+The reload button on each storage (next to edit and remove) lists its bucket again, including the folders you
+had open.
 
 **Test connection** in the form tries the values you typed without saving them and says what S3 answered, for
 example `SignatureDoesNotMatch (check the secret access key and the region)`, `AccessDenied` or `NoSuchBucket`.
