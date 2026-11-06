@@ -178,41 +178,11 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 			throw e;
 		}
 
-		try (Statement stmt = this.duckdb.createStatement()) {
-
-			if (!stmt.execute("INSTALL arrow;")) {
-				int count = stmt.getUpdateCount();
-				if (count == -1) {
-					System.out.println("Command \"INSTALL arrow;\" executed successfully (no rows affected).");
-					logger.info("Command \"INSTALL arrow;\" executed successfully (no rows affected).");
-				} else {
-					System.out.println("Rows affected: " + count);
-				}
-			}
-
-			if (!stmt.execute("LOAD arrow;")) {
-				int count = stmt.getUpdateCount();
-				if (count == -1) {
-					System.out.println("Command \"LOAD arrow;\" executed successfully (no rows affected).");
-					logger.info("Command \"LOAD arrow;\" executed successfully (no rows affected).");
-				} else {
-					System.out.println("Rows affected: " + count);
-				}
-			}
-
-		} catch (Exception e) {
-			logger.error(e);
-			throw e;
-		}
-		// Admins run their Flight queries on the metadata database, which needs the arrow extension too
-		try (Statement stmt = this.metadatadb.createStatement()) {
-			stmt.execute("INSTALL arrow;");
-			stmt.execute("LOAD arrow;");
-			logger.info("arrow extension loaded in the metadata database");
-		} catch (Exception e) {
-			logger.error(e);
-			throw e;
-		}
+		// Arrow results come from the DuckDB JDBC driver itself (arrowExportStream, the Arrow C data interface), which
+		// does not need DuckDB's "arrow" extension. That extension is not published for DuckDB 2.0 (its download
+		// answers 404), so a failure to install it is only logged; older installations that have it keep loading it.
+		loadArrowExtension(this.duckdb, "the main database");
+		loadArrowExtension(this.metadatadb, "the metadata database");
 		// Flight gRPC location
 		Location location = Location.forGrpcInsecure(host, arrowPort);
 
@@ -441,6 +411,17 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 	 */
 	private Connection connectionFor(CallContext context) throws SQLException {
 		return userConnections.open(context.peerIdentity());
+	}
+
+	private static void loadArrowExtension(Connection conn, String which) {
+		try (Statement stmt = conn.createStatement()) {
+			stmt.execute("INSTALL arrow;");
+			stmt.execute("LOAD arrow;");
+			logger.info("arrow extension loaded in {}", which);
+		} catch (SQLException e) {
+			logger.warn("DuckDB arrow extension not available in {} ({}); not needed for Arrow Flight", which,
+					e.getMessage());
+		}
 	}
 
 	/** The version of the server jar (Implementation-Version), or "dev" when run from the IDE. */
