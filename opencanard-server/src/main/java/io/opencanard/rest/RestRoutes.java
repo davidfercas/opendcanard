@@ -47,12 +47,12 @@ public class RestRoutes {
 		routes.get("/health", controller::handleHealthCheck);
 
 		// WEB CONSOLE: the page itself is static (see RestApiServer); its API needs a login, any role
-		routes.get("/", ctx -> ctx.redirect("/console/"));
-		// Javalin ignores trailing slashes, so "/console" and "/console/" reach the same handler: redirect only the
+		routes.get("/", ctx -> ctx.redirect("/opencanard-console/"));
+		// Javalin ignores trailing slashes, so "/opencanard-console" and "/opencanard-console/" reach the same handler: redirect only the
 		// form without the slash (the page's relative links need it) and serve the page for the other.
-		routes.get("/console", ctx -> {
+		routes.get("/opencanard-console", ctx -> {
 			if (!ctx.path().endsWith("/")) {
-				ctx.redirect("/console/");
+				ctx.redirect("/opencanard-console/");
 				return;
 			}
 			ctx.contentType("text/html; charset=utf-8");

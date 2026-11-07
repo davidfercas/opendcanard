@@ -3,7 +3,7 @@
 OpenCanard serves a browser console on the REST port: the structure of your database on the left, a SQL
 editor and the results on the right.
 
-Open `http://localhost:8084/console/` (`/` redirects there) and sign in with an OpenCanard user.
+Open `http://localhost:8084/opencanard-console/` (`/` redirects there) and sign in with an OpenCanard user.
 
 ## What you can do
 

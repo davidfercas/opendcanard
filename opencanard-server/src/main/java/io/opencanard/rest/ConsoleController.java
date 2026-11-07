@@ -23,7 +23,7 @@ import io.opencanard.query.RunningQueries;
 import io.opencanard.user.UserConnections;
 
 /**
- * Endpoints behind the web console ({@code /console/}). Every call runs on the database of the logged-in user,
+ * Endpoints behind the web console ({@code /opencanard-console/}). Every call runs on the database of the logged-in user,
  * chosen by {@link UserConnections} with the same rule as Arrow Flight: admins work on the metadata database,
  * everyone else on their own registered file. A SQL error is answered with HTTP 400 and {@code {"error": "..."}}.
  */

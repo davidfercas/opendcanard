@@ -74,7 +74,7 @@ bin/start.sh          # bin\start.bat on Windows
 ```
 
 The Flight server listens on port `8815` and the REST API on `8084` by default.
-The web console is at `http://localhost:8084/console/`.
+The web console is at `http://localhost:8084/opencanard-console/`.
 See [docs/configuration.md](docs/configuration.md) to change them.
 
 ### 3. Create a user

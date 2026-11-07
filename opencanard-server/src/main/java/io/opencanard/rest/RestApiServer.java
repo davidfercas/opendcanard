@@ -69,9 +69,9 @@ public class RestApiServer implements AutoCloseable {
 
 			config.registerPlugin(new SwaggerPlugin());
 
-			// The web console: files under src/main/resources/web, served at /console/
+			// The web console: files under src/main/resources/web, served at /opencanard-console/
 			config.staticFiles.add(files -> {
-				files.hostedPath = "/console";
+				files.hostedPath = "/opencanard-console";
 				files.directory = "/web";
 				files.location = io.javalin.http.staticfiles.Location.CLASSPATH;
 				files.headers = java.util.Map.of("Cache-Control", "no-cache");
@@ -84,7 +84,7 @@ public class RestApiServer implements AutoCloseable {
 
 	public void start() {
 		app.start(port);
-		logger.info("REST API started on port {} (web console at /console/, Swagger UI at /swagger, OpenAPI document at /openapi)", port);
+		logger.info("REST API started on port {} (web console at /opencanard-console/, Swagger UI at /swagger, OpenAPI document at /openapi)", port);
 		System.out.println("REST API started at http://localhost:" + port);
 	}
 
