@@ -17,8 +17,9 @@ not checked against a running instance.
 | `POST` | `/api/login` | none | Exchanges a username and password for a JWT. |
 | `GET` | `/management/databases` | admin | Lists the databases attached to the DuckDB engine (`PRAGMA show_databases`). |
 | `GET` | `/management/schemas` | admin | Lists the schemas of the engine (rows of `duckdb_schemas()`). |
-| `GET` | `/management/users` | admin | Lists users: `username`, `role`, `created_at`. Password hashes are not returned. |
+| `GET` | `/management/users` | admin | Lists users: `username`, `role`, `created_at` and `databases` (the files registered in `opencanard_databases`). Password hashes are not returned. |
 | `POST` | `/management/users` | admin | Creates a user and the user's own DuckDB file, see [Creating a user](#creating-a-user). |
+| `DELETE` | `/management/users/{username}` | admin | Deletes a user and its database files, see [Deleting a user](#deleting-a-user). |
 | `POST` | `/management/shutdown` | any authenticated user | Stops the server process immediately. |
 
 Error responses: `401` for missing or invalid credentials, `403` when the `admin` role is required and
@@ -76,6 +77,23 @@ The call returns `201` and creates three things: the user's own empty DuckDB fil
 row in `opencanard_users`. If one of them cannot be created the others are removed again. It returns
 `409` if the user exists, or if a file `data/users/<username>.duckdb` is already there (for example left over
 from an interrupted creation: it is never overwritten, remove it first if it is not in use).
+
+### Deleting a user
+
+```bash
+curl -s -X DELETE http://localhost:8084/management/users/alice -u admin:change-me
+# {"username": "alice", "removedFiles": ["alice.duckdb"]}
+```
+
+The call closes and removes from `data/users/` every DuckDB file registered for the login in
+`opencanard_databases` (and `<username>.duckdb` if it is there), with its `.wal`; then it deletes the login's rows
+in `opencanard_databases`, `opencanard_storages` and `opencanard_users`. The files go first: if one cannot be removed
+(on Windows, for example, while a query still holds it open) the call answers `500` and the user is kept, so it
+can be retried. It answers `404` if the user does not exist and `400` if an admin tries to delete their own
+account (so at least one admin always remains).
+
+Bearer tokens are checked against the users table on every call: a deleted user's token stops working at once,
+and a token issued to an admin stops granting the admin role if that user is deleted.
 
 ## Notes and limitations
 

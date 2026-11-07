@@ -83,6 +83,21 @@ public class DatabaseRegistry {
 		return entries;
 	}
 
+	/** Every database registered for the login, oldest first. */
+	public List<Entry> listByLogin(Connection metadatadb, String login) throws SQLException {
+		List<Entry> entries = new ArrayList<>();
+		try (PreparedStatement ps = metadatadb.prepareStatement("SELECT login, database_name, duckdb_file, created_at "
+				+ "FROM main.opencanard_databases WHERE login = ? ORDER BY created_at, database_name")) {
+			ps.setString(1, login);
+			try (ResultSet rs = ps.executeQuery()) {
+				while (rs.next()) {
+					entries.add(read(rs));
+				}
+			}
+		}
+		return entries;
+	}
+
 	/** Registers a database; created_at is always set to now(). */
 	public void insert(Connection metadatadb, String login, String databaseName, String duckdbFile)
 			throws SQLException {

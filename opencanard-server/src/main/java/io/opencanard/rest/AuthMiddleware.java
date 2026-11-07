@@ -1,7 +1,6 @@
 package io.opencanard.rest;
 
 import java.util.Base64;
-import java.util.List;
 
 import io.javalin.http.Context;
 import io.javalin.http.Handler;
@@ -61,9 +60,16 @@ public class AuthMiddleware implements Handler {
 						.require(com.auth0.jwt.algorithms.Algorithm.HMAC256(OpenCanardApiController.JWT_SECRET))
 						.build();
 				var decoded = verifier.verify(token);
-				List<String> roles = decoded.getClaim("roles").asList(String.class);
-				ctx.attribute("userRoles", roles);
-				ctx.attribute("username", decoded.getClaim("username").asString());
+				// The roles come from the users table, not from the token: a user deleted (or whose role changed)
+				// after signing in must not keep the rights the token was issued with.
+				User user = this.controller.findUser(decoded.getClaim("username").asString());
+				if (user == null) {
+					throw new UnauthorizedResponse("The user of this token no longer exists");
+				}
+				ctx.attribute("userRoles", user.getRoles());
+				ctx.attribute("username", user.getUsername());
+			} catch (UnauthorizedResponse e) {
+				throw e;
 			} catch (Exception e) {
 				throw new UnauthorizedResponse("Invalid Token");
 			}

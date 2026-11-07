@@ -79,6 +79,7 @@ public class RestRoutes {
 		routes.get("/management/schemas", controller::listSchemas);
 		routes.get("/management/users", controller::listUsers);
 		routes.post("/management/users", controller::createUser);
+		routes.delete("/management/users/{username}", controller::deleteUser);
 		routes.post("/management/shutdown", controller::shutdown);
 	}
 }

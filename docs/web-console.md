@@ -115,6 +115,20 @@ The same rule as Arrow Flight and the JDBC driver:
 An admin can therefore read and write `opencanard_users`, which holds the password hashes. Create a regular
 user for everyday queries.
 
+## Administration (admins only)
+
+Users with the role `admin` see an **Administration** drop-down at the top right of the console. Its
+**Users** option opens a window that lists every user with its role, database files and creation date, and lets
+the admin:
+
+- **create a user**: name, password and role (`user` or `admin`). A regular user gets its own empty database
+  file `data/users/<username>.duckdb`;
+- **delete a user**: after a confirmation that lists the files involved, the user, its S3 storages and its
+  database files in the data folder are removed. An admin cannot delete their own account.
+
+Users without the admin role never see the menu, and the server refuses its calls (`/management/users`) with
+`403` whatever the client sends. See [Deleting a user](rest-api.md#deleting-a-user).
+
 ## Limits
 
 - At most 1,000 rows come back by default. The **Row limit** list raises it to 100,000. Longer text is cut

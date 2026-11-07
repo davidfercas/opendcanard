@@ -105,6 +105,33 @@ public class UserDatabases implements AutoCloseable {
 	}
 
 	/**
+	 * Closes and removes a database file given by its name inside the user databases directory (as stored in
+	 * {@code opencanard_databases.duckdb_file}), together with its {@code .wal}.
+	 *
+	 * @return true if the file existed
+	 * @throws IOException if the name points outside the directory or the file cannot be removed (for example
+	 *                     because a query still holds it open on Windows)
+	 */
+	public synchronized boolean deleteFile(String duckdbFile) throws IOException {
+		Path file = dir.resolve(duckdbFile).normalize();
+		if (!file.startsWith(dir) || file.equals(dir)) {
+			throw new IOException("Refusing to remove '" + duckdbFile + "': it is outside " + dir);
+		}
+		DuckDBConnection base = open.remove(file.toString());
+		if (base != null) {
+			try {
+				base.close();
+			} catch (SQLException e) {
+				logger.warn("[user-db] could not close {} before removing it: {}", file, e.getMessage());
+			}
+		}
+		boolean removed = Files.deleteIfExists(file);
+		Files.deleteIfExists(file.resolveSibling(file.getFileName() + ".wal"));
+		logger.info("[user-db] removed {} (file existed: {})", file, removed);
+		return removed;
+	}
+
+	/**
 	 * A new connection to the database registered for the login in {@code opencanard_databases}, or
 	 * {@code null} if the login has none. The caller must close it.
 	 *

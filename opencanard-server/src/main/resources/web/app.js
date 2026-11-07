@@ -21,6 +21,7 @@
 		bucket: {},               // storage name -> folder path -> { folders, files, nextToken, loading, error }
 		s3open: new Set(),
 		epoch: 0,                 // bumped on every sign in and sign out; replies from an older epoch are dropped
+		users: [],                // users listed in Administration > Users (admins only)
 		history: [],              // past queries of the signed-in user, newest first
 		historySize: 10
 	};
@@ -121,7 +122,7 @@
 		state.bucket = {};
 		state.s3open = new Set();
 		firstLoad = true;
-		['queriesDialog', 'storageDialog', 'removeDialog'].forEach(function (id) {
+		['queriesDialog', 'storageDialog', 'removeDialog', 'usersDialog', 'deleteUserDialog'].forEach(function (id) {
 			var d = $(id);
 			if (d && d.open) d.close(); // closing the running-queries dialog also stops its refresh timer
 		});
@@ -135,6 +136,10 @@
 		$('resultBody').textContent = '';
 		closeHistory();
 		$('historyList').textContent = '';
+		closeAdminMenu();
+		$('adminMenu').hidden = true;
+		$('usersList').textContent = '';
+		state.users = [];
 	}
 
 	function showLogin(message) {
@@ -186,6 +191,7 @@
 			$('login').hidden = true;
 			$('app').hidden = false;
 			$('who').textContent = session.username + (session.admin ? ' (admin)' : '');
+			$('adminMenu').hidden = !session.admin; // the server checks the role again on every call
 			$('connLabel').textContent = session.admin ? 'Metadata database' : 'Personal database';
 			$('sql').focus();
 			loadStorages();
@@ -1118,6 +1124,176 @@
 			var next = event.key === 'ArrowDown' ? Math.min(items.length - 1, i + 1) : Math.max(0, i - 1);
 			if (items[next]) { items[next].focus(); event.preventDefault(); }
 		}
+	});
+
+	// ---------- administration (admin role only) ----------
+
+	function openAdminMenu() {
+		$('adminList').hidden = false;
+		$('adminBtn').setAttribute('aria-expanded', 'true');
+		$('adminUsers').focus();
+	}
+
+	function closeAdminMenu() {
+		$('adminList').hidden = true;
+		$('adminBtn').setAttribute('aria-expanded', 'false');
+	}
+
+	$('adminBtn').addEventListener('click', function () {
+		if ($('adminList').hidden) openAdminMenu(); else closeAdminMenu();
+	});
+	document.addEventListener('click', function (event) {
+		if (!$('adminList').hidden && !$('adminMenu').contains(event.target)) closeAdminMenu();
+	});
+	$('adminMenu').addEventListener('keydown', function (event) {
+		if (event.key === 'Escape' && !$('adminList').hidden) {
+			closeAdminMenu();
+			$('adminBtn').focus();
+			event.preventDefault();
+		}
+	});
+
+	var usersDialog = $('usersDialog');
+	var deleteUserDialog = $('deleteUserDialog');
+	var deletingUser = null;
+
+	function showUsersNotice(message) {
+		var box = $('usersNotice');
+		box.textContent = message || '';
+		box.hidden = !message;
+	}
+
+	function loadUsers() {
+		var btn = $('usersRefresh');
+		var epoch = state.epoch;
+		btn.classList.add('busy');
+		return api('/management/users').then(function (users) {
+			if (epoch !== state.epoch) return;
+			state.users = users || [];
+			renderUsers();
+		}, function (e) {
+			if (epoch !== state.epoch) return;
+			showFormError('usersError', e.status === 403 ? 'Only admins can manage users.' : e.message);
+		}).then(function () { btn.classList.remove('busy'); });
+	}
+
+	function formatCreated(text) {
+		if (!text) return '';
+		var d = new Date(text.replace(' ', 'T'));
+		return isNaN(d) ? text : d.toLocaleString([], { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+	}
+
+	function renderUsers() {
+		var box = $('usersList');
+		box.textContent = '';
+		var users = state.users;
+		$('usersCount').textContent = plural(users.length, 'user');
+		if (users.length === 0) {
+			box.appendChild(el('div', { class: 'queries-empty', text: 'No users.' }));
+			return;
+		}
+		var head = el('tr');
+		[['User', ''], ['Role', 'w-role'], ['Database files', ''], ['Created', 'w-created'], ['', 'w-action']].forEach(function (c) {
+			var th = el('th', { text: c[0] });
+			if (c[1]) th.className = c[1];
+			if (!c[0]) th.setAttribute('aria-label', 'Delete');
+			head.appendChild(th);
+		});
+		var me = state.session ? state.session.username : null;
+		var tbody = el('tbody');
+		users.forEach(function (u) {
+			var tr = el('tr');
+			var name = el('td', { class: 'u-name', text: u.username });
+			if (u.username === me) name.appendChild(el('span', { class: 'q-tag', text: 'you' }));
+			tr.appendChild(name);
+			tr.appendChild(el('td', {}, [el('span', { class: 'role-tag' + (u.role === 'admin' ? ' admin' : ''), text: u.role })]));
+			var files = u.databases && u.databases.length ? u.databases.join(', ') : (u.role === 'admin' ? 'metadata database' : '—');
+			tr.appendChild(el('td', { class: 'u-files', text: files, title: files }));
+			tr.appendChild(el('td', { text: formatCreated(u.created_at) }));
+			var del = el('button', { type: 'button', class: 'btn small danger-outline', 'aria-label': 'Delete ' + u.username }, [icon('i-trash'), document.createTextNode('Delete')]);
+			if (u.username === me) {
+				del.disabled = true;
+				del.title = 'You cannot delete your own account';
+			}
+			del.addEventListener('click', function () { openDeleteUser(u); });
+			tr.appendChild(el('td', { class: 'u-action' }, [del]));
+			tbody.appendChild(tr);
+		});
+		box.appendChild(el('table', { class: 'grid users' }, [el('thead', {}, [head]), tbody]));
+	}
+
+	$('adminUsers').addEventListener('click', function () {
+		closeAdminMenu();
+		$('newUserForm').reset();
+		showFormError('usersError', '');
+		showUsersNotice('');
+		$('usersList').textContent = '';
+		$('usersList').appendChild(el('div', { class: 'queries-empty', text: 'Loading…' }));
+		usersDialog.showModal();
+		$('nuName').focus();
+		loadUsers();
+	});
+	$('usersRefresh').addEventListener('click', loadUsers);
+	$('usersClose').addEventListener('click', function () { usersDialog.close(); });
+
+	$('newUserForm').addEventListener('submit', function (event) {
+		event.preventDefault();
+		showFormError('usersError', '');
+		showUsersNotice('');
+		var body = { username: $('nuName').value.trim(), password: $('nuPass').value, role: $('nuRole').value };
+		if (!body.username || !body.password) {
+			showFormError('usersError', 'Type a user name and a password.');
+			(body.username ? $('nuPass') : $('nuName')).focus();
+			return;
+		}
+		var btn = $('nuCreate');
+		btn.disabled = true;
+		api('/management/users', { method: 'POST', body: body }).then(function (created) {
+			$('newUserForm').reset();
+			showUsersNotice('User "' + created.username + '" created with role ' + created.role + '.');
+			$('nuName').focus();
+			return loadUsers();
+		}, function (e) {
+			showFormError('usersError', e.message);
+		}).then(function () { btn.disabled = false; });
+	});
+
+	function openDeleteUser(u) {
+		deletingUser = u;
+		showFormError('deleteUserError', '');
+		$('deleteUserTitle').textContent = 'Delete ' + u.username;
+		var files = u.databases || [];
+		$('deleteUserText').textContent = 'Delete the user "' + u.username + '"? Its S3 storages are removed' +
+			(files.length ? ' and these database files are deleted from the data folder. This cannot be undone:' : '. This cannot be undone.');
+		var list = $('deleteUserFiles');
+		list.textContent = '';
+		files.forEach(function (f) { list.appendChild(el('li', { text: f })); });
+		$('deleteUserConfirm').disabled = false;
+		deleteUserDialog.showModal();
+		$('deleteUserCancel').focus();
+	}
+
+	$('deleteUserCancel').addEventListener('click', function () { deleteUserDialog.close(); });
+	$('deleteUserForm').addEventListener('submit', function (event) {
+		event.preventDefault();
+		if (!deletingUser) return;
+		var confirm = $('deleteUserConfirm');
+		confirm.disabled = true;
+		var name = deletingUser.username;
+		api('/management/users/' + encodeURIComponent(name), { method: 'DELETE' }).then(function (done) {
+			deleteUserDialog.close();
+			var removed = done && done.removedFiles ? done.removedFiles : [];
+			showFormError('usersError', '');
+			showUsersNotice('User "' + name + '" deleted' + (removed.length ? ', removed ' + removed.join(', ') + '.' : '.'));
+			return loadUsers();
+		}, function (e) {
+			showFormError('deleteUserError', e.message);
+			confirm.disabled = false;
+		});
+	});
+
+	[usersDialog, deleteUserDialog].forEach(function (d) {
+		d.addEventListener('mousedown', function (event) { if (event.target === d) d.close(); });
 	});
 
 	// ---------- resizing ----------

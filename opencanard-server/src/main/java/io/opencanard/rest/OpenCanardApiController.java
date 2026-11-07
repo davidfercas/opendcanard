@@ -13,6 +13,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
+import io.opencanard.user.DatabaseRegistry;
 import io.opencanard.user.User;
 import io.opencanard.user.UserAlreadyExistsException;
 import io.opencanard.user.UserRepository;
@@ -152,14 +153,27 @@ public class OpenCanardApiController {
 
 		List<Map<String, Object>> users = new ArrayList<>();
 
+		// database files of every login, read first: a second query on the connection would close the open result
+		Map<String, List<String>> databases = new java.util.HashMap<>();
+		try {
+			for (DatabaseRegistry.Entry e : new DatabaseRegistry().list(this.metadatadb)) {
+				databases.computeIfAbsent(e.getLogin(), k -> new ArrayList<>()).add(e.getDuckdbFile());
+			}
+		} catch (SQLException e) {
+			logger.warn("Cannot read opencanard_databases: {}", e.getMessage());
+		}
+
 		try (Statement stmt = this.metadatadb.createStatement();
-				ResultSet rs = stmt.executeQuery("SELECT * FROM opencanard_users;")) {
+				ResultSet rs = stmt.executeQuery("SELECT * FROM opencanard_users ORDER BY username;")) {
 
 			while (rs.next()) {
+				String name = rs.getString("username");
+				java.sql.Timestamp created = rs.getTimestamp("created_at");
 				users.add(Map.of(
-						"username", rs.getString("username"),
+						"username", name,
 						"role", rs.getString("role") != null ? rs.getString("role") : "USER",
-						"created_at", rs.getTimestamp("created_at").toString()));
+						"created_at", created != null ? created.toString() : "",
+						"databases", databases.getOrDefault(name, List.of())));
 			}
 
 			ctx.json(users);
@@ -218,9 +232,58 @@ public class OpenCanardApiController {
 		}
 	}
 
+	@io.javalin.openapi.OpenApi(
+			path = "/management/users/{username}",
+			methods = io.javalin.openapi.HttpMethod.DELETE,
+			summary = "Delete a user",
+			description = "Deletes the user, its S3 storages and its registered DuckDB database files, which are removed "
+					+ "from the data folder. An admin cannot delete their own account. Requires the admin role.",
+			security = { @io.javalin.openapi.OpenApiSecurity(name = "basicAuth") },
+			tags = { "Management" },
+			pathParams = { @io.javalin.openapi.OpenApiParam(name = "username", required = true, description = "Login to delete") },
+			responses = {
+					@io.javalin.openapi.OpenApiResponse(status = "200", description = "User deleted: {username, removedFiles}"),
+					@io.javalin.openapi.OpenApiResponse(status = "400", description = "Trying to delete your own account"),
+					@io.javalin.openapi.OpenApiResponse(status = "401", description = "Missing or invalid credentials"),
+					@io.javalin.openapi.OpenApiResponse(status = "403", description = "User does not have the admin role"),
+					@io.javalin.openapi.OpenApiResponse(status = "404", description = "The user does not exist"),
+					@io.javalin.openapi.OpenApiResponse(status = "500", description = "A database file could not be removed; the user is kept")
+			}
+	)
+	public void deleteUser(io.javalin.http.Context ctx) {
+		requireAdmin(ctx);
+
+		String username = ctx.pathParam("username");
+		String admin = ctx.attribute("username");
+		try {
+			List<String> removed = userService.deleteUser(username, admin);
+			ctx.json(Map.of("username", username, "removedFiles", removed));
+		} catch (IllegalArgumentException | UserService.CannotDeleteUserException e) {
+			throw new io.javalin.http.BadRequestResponse(e.getMessage());
+		} catch (UserService.UserNotFoundException e) {
+			throw new io.javalin.http.NotFoundResponse(e.getMessage());
+		} catch (Exception e) {
+			logger.error("Failed to delete user '{}'", username, e);
+			ctx.status(500).json(Map.of("error", "The user could not be deleted: " + e.getMessage()));
+		}
+	}
+
 	public void shutdown(io.javalin.http.Context ctx) {
 		ctx.result("Shutting down...");
 		System.exit(0);
+	}
+
+	/** The user as stored in the metadata database now, or {@code null} if it does not exist (any more). */
+	public User findUser(String username) {
+		if (username == null) {
+			return null;
+		}
+		try {
+			return new UserRepository().getUser(this.metadatadb, username);
+		} catch (Exception e) {
+			logger.error("Cannot read user '{}'", username, e);
+			return null;
+		}
 	}
 
 	/** Throws 403 unless the authenticated user (set by AuthMiddleware) has the admin role. */

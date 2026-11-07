@@ -28,6 +28,8 @@
 	<symbol id="i-stop" viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9" rx="1.2" fill="currentColor"/></symbol>
 	<symbol id="i-activity" viewBox="0 0 16 16"><path d="M1.5 8.5h3l2-5 3 9 2-4h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 	<symbol id="i-history" viewBox="0 0 16 16"><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M2.3 2.6v2.6h2.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 5v3.2l2.2 1.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+	<symbol id="i-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.8v1.8M8 12.4v1.8M1.8 8h1.8M12.4 8h1.8M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M3.6 12.4l1.3-1.3M11.1 4.9l1.3-1.3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+	<symbol id="i-users" viewBox="0 0 16 16"><circle cx="6" cy="5.5" r="2.3" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M1.8 13c.5-2.3 2.1-3.6 4.2-3.6s3.7 1.3 4.2 3.6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M10.6 3.4a2.2 2.2 0 0 1 0 4.2M12 9.6c1.2.5 2 1.6 2.3 3.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></symbol>
 	<symbol id="i-theme" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 2.8v10.4A5.2 5.2 0 0 0 8 2.8z" fill="currentColor"/></symbol>
 </svg>
 
@@ -51,6 +53,12 @@
 		<img src="logo.png" alt="" width="28" height="28" class="bar-logo">
 		<span class="bar-title">OpenCanard</span>
 		<span class="bar-spacer"></span>
+		<div class="admin-menu" id="adminMenu" hidden>
+			<button id="adminBtn" class="bar-btn text admin-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="adminList"><svg class="ico"><use href="#i-gear"/></svg>Administration<svg class="ico chev"><use href="#i-chevron"/></svg></button>
+			<div id="adminList" class="admin-list" role="menu" hidden>
+				<button id="adminUsers" class="admin-item" type="button" role="menuitem"><svg class="ico"><use href="#i-users"/></svg>Users</button>
+			</div>
+		</div>
 		<span id="who" class="bar-who"></span>
 		<button id="themeBtn" class="bar-btn" type="button" title="Switch light or dark theme" aria-label="Switch light or dark theme"><svg class="ico"><use href="#i-theme"/></svg></button>
 		<button id="logoutBtn" class="bar-btn text" type="button">Sign out</button>
@@ -221,6 +229,58 @@
 			<button type="button" class="btn" id="queriesClose">Close</button>
 		</div>
 	</div>
+</dialog>
+
+<!-- Administration: users -->
+<dialog id="usersDialog" class="dialog wide" aria-labelledby="usersTitle">
+	<div class="dialog-body">
+		<div class="dialog-head">
+			<h2 id="usersTitle">Users</h2>
+			<span id="usersCount" class="dialog-sub"></span>
+			<span class="bar-spacer"></span>
+			<button id="usersRefresh" class="icon-btn" type="button" title="Reload users" aria-label="Reload users"><svg class="ico"><use href="#i-refresh"/></svg></button>
+		</div>
+		<form id="newUserForm" class="new-user" novalidate autocomplete="off">
+			<div class="field">
+				<label for="nuName">User name</label>
+				<input id="nuName" name="username" maxlength="64" spellcheck="false" autocomplete="off" required>
+			</div>
+			<div class="field">
+				<label for="nuPass">Password</label>
+				<input id="nuPass" name="password" type="password" autocomplete="new-password" required>
+			</div>
+			<div class="field role">
+				<label for="nuRole">Role</label>
+				<select id="nuRole" name="role">
+					<option value="user" selected>user</option>
+					<option value="admin">admin</option>
+				</select>
+			</div>
+			<button type="submit" class="run" id="nuCreate"><svg class="ico"><use href="#i-plus"/></svg>Create user</button>
+			<span class="help span-all">Letters, digits, '_' and '-', up to 64 characters. A regular user gets its own database file in the data folder; admins work on the metadata database.</span>
+		</form>
+		<p id="usersError" class="form-error" role="alert" hidden></p>
+		<p id="usersNotice" class="test-result ok" role="status" hidden></p>
+		<div id="usersList" class="queries-list" aria-live="polite"></div>
+		<div class="dialog-actions">
+			<span class="bar-spacer"></span>
+			<button type="button" class="btn" id="usersClose">Close</button>
+		</div>
+	</div>
+</dialog>
+
+<!-- Delete user -->
+<dialog id="deleteUserDialog" class="dialog small" aria-labelledby="deleteUserTitle">
+	<form id="deleteUserForm" method="dialog">
+		<h2 id="deleteUserTitle">Delete user</h2>
+		<p id="deleteUserText"></p>
+		<ul id="deleteUserFiles" class="file-list"></ul>
+		<p id="deleteUserError" class="form-error" role="alert" hidden></p>
+		<div class="dialog-actions">
+			<button type="button" class="btn" id="deleteUserCancel">Keep user</button>
+			<button type="submit" class="btn danger" id="deleteUserConfirm">Delete user</button>
+		</div>
+	</form>
 </dialog>
 
 <script src="sql.js"></script>
