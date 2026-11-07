@@ -175,7 +175,7 @@
 	$('logoutBtn').addEventListener('click', function () { showLogin(); });
 
 	function startApp() {
-		return api('/api/console/session').then(function (session) {
+		return api('/api/session').then(function (session) {
 			resetPanels();
 			state.session = session;
 			state.historySize = typeof session.historySize === 'number' ? Math.max(0, session.historySize) : 10;
@@ -201,7 +201,7 @@
 		var btn = $('refreshBtn');
 		var epoch = state.epoch;
 		btn.classList.add('busy');
-		return api('/api/console/catalog').then(function (catalog) {
+		return api('/api/catalog').then(function (catalog) {
 			if (epoch !== state.epoch) return;
 			state.catalog = catalog;
 			if (initial || firstLoad) expandDefaults(catalog);
@@ -369,7 +369,7 @@
 
 	function loadColumns(o) {
 		var t = o.table;
-		var url = '/api/console/columns?catalog=' + encodeURIComponent(t.db) + '&schema=' + encodeURIComponent(t.schema) + '&table=' + encodeURIComponent(t.name);
+		var url = '/api/columns?catalog=' + encodeURIComponent(t.db) + '&schema=' + encodeURIComponent(t.schema) + '&table=' + encodeURIComponent(t.name);
 		var epoch = state.epoch;
 		api(url).then(function (cols) {
 			if (epoch === state.epoch) state.columns[o.key] = cols;
@@ -394,7 +394,7 @@
 
 	function loadStorages() {
 		var epoch = state.epoch;
-		return api('/api/console/storages').then(function (list) {
+		return api('/api/storages').then(function (list) {
 			if (epoch !== state.epoch) return;
 			state.storages = list;
 			renderStorages();
@@ -534,7 +534,7 @@
 			level.loading = true;
 			level.error = null;
 		}
-		var url = '/api/console/storages/' + encodeURIComponent(s.name) + '/objects?path=' + encodeURIComponent(path) +
+		var url = '/api/storages/' + encodeURIComponent(s.name) + '/objects?path=' + encodeURIComponent(path) +
 			(token ? '&token=' + encodeURIComponent(token) : '');
 		api(url).then(function (r) {
 			level.folders = token ? level.folders.concat(r.folders) : r.folders;
@@ -618,7 +618,7 @@
 		btn.disabled = true;
 		var body = readForm();
 		body.name = editing ? editing.name : body.name;
-		api('/api/console/storages/test', { method: 'POST', body: body }).then(function (r) {
+		api('/api/storages/test', { method: 'POST', body: body }).then(function (r) {
 			showTest(r.message, r.ok);
 		}, function (e) {
 			showTest(e.message, false);
@@ -634,8 +634,8 @@
 		var save = $('storageSave');
 		save.disabled = true;
 		var request = editing
-			? api('/api/console/storages/' + encodeURIComponent(editing.name), { method: 'PUT', body: body })
-			: api('/api/console/storages', { method: 'POST', body: body });
+			? api('/api/storages/' + encodeURIComponent(editing.name), { method: 'PUT', body: body })
+			: api('/api/storages', { method: 'POST', body: body });
 		request.then(function (saved) {
 			state.storageWarning = saved && saved.warning ? saved.warning : null;
 			delete state.bucket[editing ? editing.name : body.name];
@@ -664,7 +664,7 @@
 		event.preventDefault();
 		var confirm = $('removeConfirm');
 		confirm.disabled = true;
-		api('/api/console/storages/' + encodeURIComponent(removing.name), { method: 'DELETE' }).then(function (done) {
+		api('/api/storages/' + encodeURIComponent(removing.name), { method: 'DELETE' }).then(function (done) {
 			state.storageWarning = done && done.warning ? done.warning : null;
 			delete state.bucket[removing.name];
 			removeDialog.close();
@@ -723,7 +723,7 @@
 	}
 
 	function killQuery(id) {
-		return api('/api/console/queries/' + encodeURIComponent(id) + '/cancel', { method: 'POST' });
+		return api('/api/queries/' + encodeURIComponent(id) + '/cancel', { method: 'POST' });
 	}
 
 	$('killBtn').addEventListener('click', function () {
@@ -759,7 +759,7 @@
 		var started = performance.now();
 		var epoch = state.epoch;
 
-		api('/api/console/query', { method: 'POST', body: { sql: sql, maxRows: parseInt($('maxRows').value, 10), queryId: queryId } })
+		api('/api/query', { method: 'POST', body: { sql: sql, maxRows: parseInt($('maxRows').value, 10), queryId: queryId } })
 			.then(function (result) {
 				if (epoch !== state.epoch) return; // signed out (or in as someone else) while it ran
 				result.clientMs = Math.round(performance.now() - started);
@@ -837,7 +837,7 @@
 	function loadQueries() {
 		var btn = $('queriesRefresh');
 		btn.classList.add('busy');
-		return api('/api/console/queries').then(function (r) {
+		return api('/api/queries').then(function (r) {
 			showFormError('queriesError', '');
 			renderQueries(r);
 		}, function (e) {

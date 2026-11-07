@@ -103,5 +103,5 @@ register it in `RestRoutes`.
 
 ## Console endpoints
 
-`/api/console/*` serves the [web console](web-console.md): `session`, `catalog`, `columns`, `query`, `queries` (list and kill running queries) and `storages` (the user's S3 storages, their bucket contents and a connection test). They
+The rest of `/api/*` (everything except `/api/login`) serves the [web console](web-console.md): `session`, `catalog`, `columns`, `query`, `queries` (list and kill running queries) and `storages` (the user's S3 storages, their bucket contents and a connection test). They
 require a login of any role and run on the caller's own database.

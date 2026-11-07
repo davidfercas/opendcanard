@@ -100,7 +100,7 @@ SELECT * FROM read_csv_auto('s3://test/countries/countries.csv', all_varchar = t
 
 `console.history.size` in `conf/opencanard.properties` sets how many past queries the console keeps for each
 user. Default `10`, at most `100`; `0` hides **History**. The value reaches the page through
-`GET /api/console/session` (`historySize`), so a restart of the server is enough to change it.
+`GET /api/session` (`historySize`), so a restart of the server is enough to change it.
 
 ## Which database you work on
 
@@ -132,20 +132,20 @@ All calls need `Authorization: Bearer <token>` (or Basic credentials) and appear
 
 | Method and path | Purpose |
 |-----------------|---------|
-| `GET /api/console/session` | login, whether it is an admin, which database, `historySize` |
-| `GET /api/console/catalog` | databases, schemas, tables, views, indexes |
-| `GET /api/console/columns?catalog=&schema=&table=` | columns of a table or view |
-| `POST /api/console/query` | body `{"sql": "...", "maxRows": 1000, "queryId": "..."}`; `queryId` is optional (8 to 64 letters, digits or dashes) and lets the browser kill the query before the answer arrives |
-| `GET /api/console/queries` | running queries: `{"allUsers": false, "queries": [{"id", "user", "source", "sql", "startedAt", "elapsedMs", "state"}]}`; `state` is `running` or `cancelling`. Admins get every user's queries |
-| `POST /api/console/queries/{id}/cancel` | kill a query: 202 when sent, 404 when it is not running any more or belongs to another user (admins can kill any) |
-| `GET /api/console/storages` | your S3 storages (never the secret) |
-| `POST /api/console/storages` | add one |
-| `PUT /api/console/storages/{name}` | change one; an empty `secretAccessKey` keeps the stored secret |
-| `DELETE /api/console/storages/{name}` | remove one |
-| `GET /api/console/storages/{name}/objects?path=&token=` | folders and files of the bucket, one level |
-| `POST /api/console/storages/test` | try the values of a storage without saving; answers `{"ok": true, "message": "..."}` |
+| `GET /api/session` | login, whether it is an admin, which database, `historySize` |
+| `GET /api/catalog` | databases, schemas, tables, views, indexes |
+| `GET /api/columns?catalog=&schema=&table=` | columns of a table or view |
+| `POST /api/query` | body `{"sql": "...", "maxRows": 1000, "queryId": "..."}`; `queryId` is optional (8 to 64 letters, digits or dashes) and lets the browser kill the query before the answer arrives |
+| `GET /api/queries` | running queries: `{"allUsers": false, "queries": [{"id", "user", "source", "sql", "startedAt", "elapsedMs", "state"}]}`; `state` is `running` or `cancelling`. Admins get every user's queries |
+| `POST /api/queries/{id}/cancel` | kill a query: 202 when sent, 404 when it is not running any more or belongs to another user (admins can kill any) |
+| `GET /api/storages` | your S3 storages (never the secret) |
+| `POST /api/storages` | add one |
+| `PUT /api/storages/{name}` | change one; an empty `secretAccessKey` keeps the stored secret |
+| `DELETE /api/storages/{name}` | remove one |
+| `GET /api/storages/{name}/objects?path=&token=` | folders and files of the bucket, one level |
+| `POST /api/storages/test` | try the values of a storage without saving; answers `{"ok": true, "message": "..."}` |
 
-`POST /api/console/query` answers:
+`POST /api/query` answers:
 
 ```json
 { "columns": [{"name": "id", "type": "INTEGER"}], "rows": [[1]], "rowCount": 1, "truncated": false,

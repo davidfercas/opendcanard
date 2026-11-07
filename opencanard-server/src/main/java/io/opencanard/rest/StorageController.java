@@ -23,7 +23,7 @@ import io.opencanard.storage.StorageService;
 import io.opencanard.user.UserConnections;
 
 /**
- * The S3 storages of the logged-in user ({@code /api/console/storages}). The secret access key can be sent but
+ * The S3 storages of the logged-in user ({@code /api/storages}). The secret access key can be sent but
  * is never returned: responses only say whether one is stored. Errors are {@code {"error": "..."}} with 400
  * (invalid data), 404 (no such storage) or 409 (name already used).
  */
@@ -43,7 +43,7 @@ public class StorageController {
 		void run(String login) throws SQLException;
 	}
 
-	@OpenApi(path = "/api/console/storages", methods = HttpMethod.GET, summary = "List my S3 storages",
+	@OpenApi(path = "/api/storages", methods = HttpMethod.GET, summary = "List my S3 storages",
 			description = "The storages of the logged-in user. Secrets are never returned.",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Storage" },
 			responses = { @OpenApiResponse(status = "200", content = @OpenApiContent(from = List.class)),
@@ -58,7 +58,7 @@ public class StorageController {
 		});
 	}
 
-	@OpenApi(path = "/api/console/storages", methods = HttpMethod.POST, summary = "Add an S3 storage",
+	@OpenApi(path = "/api/storages", methods = HttpMethod.POST, summary = "Add an S3 storage",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Storage" },
 			requestBody = @OpenApiRequestBody(content = @OpenApiContent(from = StorageRequest.class), required = true),
 			responses = { @OpenApiResponse(status = "201", content = @OpenApiContent(from = Map.class)),
@@ -78,7 +78,7 @@ public class StorageController {
 		});
 	}
 
-	@OpenApi(path = "/api/console/storages/{name}", methods = HttpMethod.PUT, summary = "Change an S3 storage",
+	@OpenApi(path = "/api/storages/{name}", methods = HttpMethod.PUT, summary = "Change an S3 storage",
 			description = "Replaces every field but the name. An empty secretAccessKey keeps the stored secret; an empty accessKeyId and secretAccessKey make it a public bucket.",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Storage" },
 			pathParams = { @OpenApiParam(name = "name", required = true) },
@@ -98,7 +98,7 @@ public class StorageController {
 		});
 	}
 
-	@OpenApi(path = "/api/console/storages/{name}", methods = HttpMethod.DELETE, summary = "Remove an S3 storage",
+	@OpenApi(path = "/api/storages/{name}", methods = HttpMethod.DELETE, summary = "Remove an S3 storage",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Storage" },
 			pathParams = { @OpenApiParam(name = "name", required = true) },
 			responses = { @OpenApiResponse(status = "204", description = "Removed"),
@@ -137,7 +137,7 @@ public class StorageController {
 		}
 	}
 
-	@OpenApi(path = "/api/console/storages/{name}/objects", methods = HttpMethod.GET, summary = "Browse a bucket",
+	@OpenApi(path = "/api/storages/{name}/objects", methods = HttpMethod.GET, summary = "Browse a bucket",
 			description = "Folders and files directly under 'path' (relative to the storage's own folder), 200 per page.",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Storage" },
 			pathParams = { @OpenApiParam(name = "name", required = true) },
@@ -178,7 +178,7 @@ public class StorageController {
 		});
 	}
 
-	@OpenApi(path = "/api/console/storages/test", methods = HttpMethod.POST, summary = "Test the values of a storage",
+	@OpenApi(path = "/api/storages/test", methods = HttpMethod.POST, summary = "Test the values of a storage",
 			description = "Lists the top of the bucket with the given values without saving them. An empty secretAccessKey uses the one stored under the same name; an empty accessKeyId and secretAccessKey test a public bucket.",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Storage" },
 			requestBody = @OpenApiRequestBody(content = @OpenApiContent(from = StorageRequest.class), required = true),

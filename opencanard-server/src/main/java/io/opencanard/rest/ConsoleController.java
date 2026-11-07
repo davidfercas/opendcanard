@@ -55,7 +55,7 @@ public class ConsoleController {
 		this.historySize = Math.max(0, Math.min(MAX_HISTORY_SIZE, historySize));
 	}
 
-	@OpenApi(path = "/api/console/session", methods = HttpMethod.GET, summary = "Who is connected to the console",
+	@OpenApi(path = "/api/session", methods = HttpMethod.GET, summary = "Who is connected to the console",
 			description = "Returns the login, whether it is an admin, the database the console works on and how many "
 					+ "past queries the console keeps (historySize, from console.history.size).",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Console" },
@@ -72,7 +72,7 @@ public class ConsoleController {
 		ctx.json(out);
 	}
 
-	@OpenApi(path = "/api/console/catalog", methods = HttpMethod.GET, summary = "Databases, schemas, tables and views",
+	@OpenApi(path = "/api/catalog", methods = HttpMethod.GET, summary = "Databases, schemas, tables and views",
 			description = "Structure of the database of the logged-in user, for the tree of the console.",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Console" },
 			responses = { @OpenApiResponse(status = "200", content = @OpenApiContent(from = Map.class)),
@@ -82,7 +82,7 @@ public class ConsoleController {
 		withConnection(ctx, conn -> ctx.json(CatalogReader.catalog(conn)));
 	}
 
-	@OpenApi(path = "/api/console/columns", methods = HttpMethod.GET, summary = "Columns of a table or view",
+	@OpenApi(path = "/api/columns", methods = HttpMethod.GET, summary = "Columns of a table or view",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Console" },
 			queryParams = { @OpenApiParam(name = "catalog", required = true),
 					@OpenApiParam(name = "schema", required = true), @OpenApiParam(name = "table", required = true) },
@@ -100,7 +100,7 @@ public class ConsoleController {
 		withConnection(ctx, conn -> ctx.json(CatalogReader.columns(conn, catalog, schema, table)));
 	}
 
-	@OpenApi(path = "/api/console/query", methods = HttpMethod.POST, summary = "Run SQL",
+	@OpenApi(path = "/api/query", methods = HttpMethod.POST, summary = "Run SQL",
 			description = "Runs one or more statements separated by ';' and returns the result of the last one.",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Console" },
 			requestBody = @OpenApiRequestBody(content = @OpenApiContent(from = ConsoleQueryRequest.class), required = true),
@@ -134,7 +134,7 @@ public class ConsoleController {
 		});
 	}
 
-	@OpenApi(path = "/api/console/queries", methods = HttpMethod.GET, summary = "Queries running now",
+	@OpenApi(path = "/api/queries", methods = HttpMethod.GET, summary = "Queries running now",
 			description = "Queries of the web console and of Arrow Flight clients that have not finished yet, oldest "
 					+ "first. An admin sees the queries of every user; any other user only their own.",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Console" },
@@ -149,7 +149,7 @@ public class ConsoleController {
 		ctx.json(out);
 	}
 
-	@OpenApi(path = "/api/console/queries/{id}/cancel", methods = HttpMethod.POST, summary = "Kill a running query",
+	@OpenApi(path = "/api/queries/{id}/cancel", methods = HttpMethod.POST, summary = "Kill a running query",
 			description = "Interrupts the query. It ends shortly afterwards with the error \"The query was cancelled\"."
 					+ " Users can cancel their own queries; admins can cancel any query.",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Console" },

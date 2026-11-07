@@ -1,6 +1,6 @@
 package io.opencanard.rest;
 
-/** Body of {@code POST /api/console/query}. */
+/** Body of {@code POST /api/query}. */
 public class ConsoleQueryRequest {
 
 	/** One or more SQL statements separated by {@code ;}. */
@@ -11,7 +11,7 @@ public class ConsoleQueryRequest {
 
 	/**
 	 * Optional id chosen by the browser (letters, digits and dashes, 8 to 64 characters), so it can cancel the
-	 * query with {@code POST /api/console/queries/{id}/cancel} before the answer arrives.
+	 * query with {@code POST /api/queries/{id}/cancel} before the answer arrives.
 	 */
 	public String queryId;
 

@@ -58,21 +58,27 @@ public class RestRoutes {
 			ctx.contentType("text/html; charset=utf-8");
 			ctx.result(indexPage());
 		});
-		routes.before("/api/console/*", authMiddleware);
-		routes.get("/api/console/session", console::session);
-		routes.get("/api/console/catalog", console::catalog);
-		routes.get("/api/console/columns", console::columns);
-		routes.post("/api/console/query", console::query);
-		routes.get("/api/console/queries", console::runningQueries);
-		routes.post("/api/console/queries/{id}/cancel", console::cancelQuery);
+		// Every /api/* call needs a login, except /api/login itself (Javalin ignores a trailing slash, so drop it too)
+		routes.before("/api/*", ctx -> {
+			String path = ctx.path().endsWith("/") ? ctx.path().substring(0, ctx.path().length() - 1) : ctx.path();
+			if (!path.equals("/api/login")) {
+				authMiddleware.handle(ctx);
+			}
+		});
+		routes.get("/api/session", console::session);
+		routes.get("/api/catalog", console::catalog);
+		routes.get("/api/columns", console::columns);
+		routes.post("/api/query", console::query);
+		routes.get("/api/queries", console::runningQueries);
+		routes.post("/api/queries/{id}/cancel", console::cancelQuery);
 
 		// S3 STORAGES of the logged-in user
-		routes.get("/api/console/storages", storages::list);
-		routes.post("/api/console/storages", storages::create);
-		routes.post("/api/console/storages/test", storages::test);
-		routes.get("/api/console/storages/{name}/objects", storages::objects);
-		routes.put("/api/console/storages/{name}", storages::update);
-		routes.delete("/api/console/storages/{name}", storages::delete);
+		routes.get("/api/storages", storages::list);
+		routes.post("/api/storages", storages::create);
+		routes.post("/api/storages/test", storages::test);
+		routes.get("/api/storages/{name}/objects", storages::objects);
+		routes.put("/api/storages/{name}", storages::update);
+		routes.delete("/api/storages/{name}", storages::delete);
 
 		// MANAGEMENT (admin role)
 		routes.get("/management/databases", controller::listDatabases);
