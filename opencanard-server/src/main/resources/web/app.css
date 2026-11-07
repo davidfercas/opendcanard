@@ -50,7 +50,7 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
 /* Sign in */
 .login { min-height: 100%; display: grid; place-items: center; padding: 16px; }
 .login-box { width: min(360px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 28px 24px; display: grid; gap: 6px; }
-.login-logo { border-radius: 8px; margin-bottom: 6px; }
+.login-logo { justify-self: center; width: 120px; height: 120px; object-fit: contain; border-radius: 8px; margin-bottom: 6px; }
 .login-box h1 { font-size: 18px; font-weight: 600; margin: 0 0 14px; }
 .login-box label { font-size: 13px; color: var(--muted); margin-top: 6px; }
 .login-box input { height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); }
