@@ -56,6 +56,42 @@ for user in alice bob; do
 	echo
 done
 
+echo "== Users and roles (REST)"
+expect() { # expect <http status> <curl args...>
+	local want=$1 got
+	shift
+	got="$(curl -s -o /tmp/oc-body -w '%{http_code}' "$@")"
+	if [ "$got" != "$want" ]; then
+		echo "Expected HTTP $want, got $got for: $*" >&2
+		cat /tmp/oc-body >&2
+		exit 1
+	fi
+}
+JSON=(-H 'Content-Type: application/json')
+ADM=(-u admin:admin-pw)
+expect 201 -X POST "$REST/management/roles" "${ADM[@]}" "${JSON[@]}" -d '{"name":"analyst","description":"Reports"}'
+expect 409 -X POST "$REST/management/roles" "${ADM[@]}" "${JSON[@]}" -d '{"name":"analyst"}'
+expect 200 -X PUT "$REST/management/users/bob/roles" "${ADM[@]}" "${JSON[@]}" -d '{"roles":["user","analyst"]}'
+expect 200 -X PUT "$REST/management/roles/analyst" "${ADM[@]}" "${JSON[@]}" -d '{"name":"analysts","description":"Reports"}'
+expect 200 "$REST/management/users" "${ADM[@]}"
+grep -q '"analysts"' /tmp/oc-body
+expect 400 -X DELETE "$REST/management/roles/admin" "${ADM[@]}"
+expect 400 -X PUT "$REST/management/roles/user" "${ADM[@]}" "${JSON[@]}" -d '{"name":"members"}'
+expect 400 -X PUT "$REST/management/users/admin/roles" "${ADM[@]}" "${JSON[@]}" -d '{"roles":["user"]}'
+expect 400 -X DELETE "$REST/management/users/admin" "${ADM[@]}"
+expect 403 "$REST/management/roles" -u bob:bob-pw
+expect 403 -X DELETE "$REST/management/users/alice" -u bob:bob-pw
+expect 200 -X DELETE "$REST/management/roles/analysts" "${ADM[@]}"
+# a second admin cannot delete the built-in admin user either
+expect 201 -X POST "$REST/management/users" "${ADM[@]}" "${JSON[@]}" -d '{"username":"admin2","password":"admin2-pw","roles":["admin"]}'
+expect 400 -X DELETE "$REST/management/users/admin" -u admin2:admin2-pw
+expect 400 -X DELETE "$REST/management/users/admin2" -u admin2:admin2-pw
+test -n "$(find "$SERVER" -name admin2.duckdb)"
+expect 200 -X DELETE "$REST/management/users/admin2" "${ADM[@]}"
+test -z "$(find "$SERVER" -name admin2.duckdb)"
+expect 401 "$REST/management/roles" -u admin2:admin2-pw
+echo "Users and roles checks passed"
+
 echo "== ADBC (Python)"
 python3 -m pytest -q "$HERE/test_flight_sql.py"
 

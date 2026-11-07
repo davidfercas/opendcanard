@@ -117,17 +117,26 @@ user for everyday queries.
 
 ## Administration (admins only)
 
-Users with the role `admin` see an **Administration** drop-down at the top right of the console. Its
-**Users** option opens a window that lists every user with its role, database files and creation date, and lets
-the admin:
+Users with the role `admin` see an **Administration** drop-down at the top right of the console.
 
-- **create a user**: name, password and role (`user` or `admin`). A regular user gets its own empty database
-  file `data/users/<username>.duckdb`;
-- **delete a user**: after a confirmation that lists the files involved, the user, its S3 storages and its
-  database files in the data folder are removed. An admin cannot delete their own account.
+**Users** opens a window that lists every user with its roles, database files and creation date, and lets the
+admin:
 
-Users without the admin role never see the menu, and the server refuses its calls (`/management/users`) with
-`403` whatever the client sends. See [Deleting a user](rest-api.md#deleting-a-user).
+- **create a user**: name, password and one or more roles (`user` is ticked by default). The user gets its own
+  empty database file `data/users/<username>.duckdb`;
+- **change the roles** of a user (**Roles** button). The built-in admin user always keeps `admin`, and you cannot
+  remove `admin` from yourself, so those boxes are locked;
+- **delete a user**: after a confirmation that lists the files involved, the user, its roles, its S3 storages and
+  its database files in the data folder are removed. The built-in admin user has no Delete button, and your own
+  account's is disabled; the server refuses both anyway.
+
+**Roles** opens a window to create a role (name and description), change it (**Edit**: description, and the name
+for roles that are not built in) and delete it (it is removed from the users that have it). The built-in roles
+`admin` and `user` cannot be renamed or deleted.
+
+Users without the admin role never see the menu, and the server refuses its calls (`/management/users`,
+`/management/roles`) with `403` whatever the client sends. See [Roles](rest-api.md#roles) and
+[Deleting a user](rest-api.md#deleting-a-user).
 
 ## Limits
 

@@ -196,35 +196,57 @@ public class UserDatabases implements AutoCloseable {
 
 			java.util.List<String> logins = new java.util.ArrayList<>();
 			try (Statement st = meta.createStatement();
-					java.sql.ResultSet rs = st.executeQuery(
-							"SELECT username FROM main.opencanard_users WHERE \"role\" <> 'admin' ORDER BY username")) {
+					java.sql.ResultSet rs = st.executeQuery(NON_ADMINS)) {
 				while (rs.next()) {
 					logins.add(rs.getString(1));
 				}
 			}
 			for (String login : logins) {
-				if (registered.contains(login)) {
-					continue;
-				}
-				if (!UsernameValidator.isValid(login)) {
-					logger.error("[user-db] user '{}' has no database and its name is not a valid file name", login);
-					continue;
-				}
-				try {
-					if (Files.exists(databaseFile(login))) {
-						logger.info("[user-db] user '{}' has no registry row, registering the existing file", login);
-					} else {
-						logger.info("[user-db] user '{}' has no database, creating it", login);
-						create(login);
-					}
-					registry.insert(meta, login, login, fileName(login));
-					logger.info("[user-db] registered '{}' -> {}", login, fileName(login));
-				} catch (Exception e) {
-					logger.error("[user-db] could not set up the database of '{}'", login, e);
+				if (!registered.contains(login)) {
+					ensureDatabase(meta, login);
 				}
 			}
 		} catch (Exception e) {
 			logger.error("[user-db] the registry check failed", e);
+		}
+	}
+
+	/** Users without the role {@code admin} (roles are in {@code opencanard_user_roles}). */
+	private static final String NON_ADMINS = "SELECT u.username FROM main.opencanard_users u WHERE NOT EXISTS ("
+			+ "SELECT 1 FROM main.opencanard_user_roles r WHERE r.username = u.username AND r.role_name = 'admin') "
+			+ "ORDER BY u.username";
+
+	/**
+	 * Makes sure the login has a registered database: nothing happens if it has one; otherwise the existing
+	 * {@code <login>.duckdb} is registered, or a new empty file is created and registered. Used for a user that stops
+	 * being an admin. Failures are logged, not thrown: the user then cannot connect until the next startup check.
+	 */
+	public synchronized void ensureDatabase(String login) {
+		try (Connection meta = ((DuckDBConnection) metadatadb).duplicate()) {
+			if (registry.find(meta, login) == null) {
+				ensureDatabase(meta, login);
+			}
+		} catch (Exception e) {
+			logger.error("[user-db] could not check the database of '{}'", login, e);
+		}
+	}
+
+	private void ensureDatabase(Connection meta, String login) {
+		if (!UsernameValidator.isValid(login)) {
+			logger.error("[user-db] user '{}' has no database and its name is not a valid file name", login);
+			return;
+		}
+		try {
+			if (Files.exists(databaseFile(login))) {
+				logger.info("[user-db] user '{}' has no registry row, registering the existing file", login);
+			} else {
+				logger.info("[user-db] user '{}' has no database, creating it", login);
+				create(login);
+			}
+			registry.insert(meta, login, login, fileName(login));
+			logger.info("[user-db] registered '{}' -> {}", login, fileName(login));
+		} catch (Exception e) {
+			logger.error("[user-db] could not set up the database of '{}'", login, e);
 		}
 	}
 

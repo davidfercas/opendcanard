@@ -12,10 +12,12 @@ public class RestRoutes {
 	private final AuthMiddleware authMiddleware;
 	private final ConsoleController console;
 	private final StorageController storages;
+	private final AdminController admin;
 
 	public RestRoutes(OpenCanardApiController controller, ConsoleController console, StorageController storages,
-			AuthMiddleware authMiddleware) {
+			AdminController admin, AuthMiddleware authMiddleware) {
 		this.controller = controller;
+		this.admin = admin;
 		this.console = console;
 		this.storages = storages;
 		this.authMiddleware = authMiddleware;
@@ -77,9 +79,14 @@ public class RestRoutes {
 		// MANAGEMENT (admin role)
 		routes.get("/management/databases", controller::listDatabases);
 		routes.get("/management/schemas", controller::listSchemas);
-		routes.get("/management/users", controller::listUsers);
-		routes.post("/management/users", controller::createUser);
-		routes.delete("/management/users/{username}", controller::deleteUser);
+		routes.get("/management/users", admin::listUsers);
+		routes.post("/management/users", admin::createUser);
+		routes.put("/management/users/{username}/roles", admin::setUserRoles);
+		routes.delete("/management/users/{username}", admin::deleteUser);
+		routes.get("/management/roles", admin::listRoles);
+		routes.post("/management/roles", admin::createRole);
+		routes.put("/management/roles/{name}", admin::updateRole);
+		routes.delete("/management/roles/{name}", admin::deleteRole);
 		routes.post("/management/shutdown", controller::shutdown);
 	}
 }
