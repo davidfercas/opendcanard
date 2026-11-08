@@ -164,8 +164,8 @@ public class UserService {
 	 * <ol>
 	 * <li>every DuckDB file registered for the login in {@code opencanard_databases}, plus the default
 	 * {@code <login>.duckdb} if it is there, is closed and removed from the data folder (with its {@code .wal});</li>
-	 * <li>the rows of the login in {@code opencanard_databases}, {@code opencanard_storages} and
-	 * {@code opencanard_user_roles};</li>
+	 * <li>the rows of the login in {@code opencanard_databases}, {@code opencanard_storages},
+	 * {@code opencanard_user_privileges} and {@code opencanard_user_roles};</li>
 	 * <li>the row in {@code opencanard_users}.</li>
 	 * </ol>
 	 * The files go first: if one cannot be removed (still open by a running query on Windows, for example) the
@@ -213,6 +213,7 @@ public class UserService {
 			try {
 				databaseRegistry.deleteByLogin(c, username);
 				storages = new StorageRepository().deleteByLogin(c, username);
+				new PrivilegeRepository().deleteByUser(c, username);
 				userRepository.delete(c, username);
 				c.commit();
 			} catch (Exception e) {

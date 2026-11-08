@@ -128,11 +128,20 @@ admin:
   remove `admin` from yourself, so those boxes are locked;
 - **delete a user**: after a confirmation that lists the files involved, the user, its roles, its S3 storages and
   its database files in the data folder are removed. The built-in admin user has no Delete button, and your own
-  account's is disabled; the server refuses both anyway.
+  account's is disabled; the server refuses both anyway;
+- **grant or revoke privileges** (**Privileges** button): one checkbox per privilege, ticked to grant it and
+  unticked to revoke it. A privilege the user also gets through one of its roles says so. The Roles column shows the
+  user's privileges next to its roles (dimmed when they come from a role).
 
 **Roles** opens a window to create a role (name and description), change it (**Edit**: description, and the name
 for roles that are not built in) and delete it (it is removed from the users that have it). The built-in roles
-`admin` and `user` cannot be renamed or deleted.
+`admin` and `user` cannot be renamed or deleted. Its **Privileges** button grants or revokes privileges for the
+role: every user with the role has them.
+
+The only privilege today is **`READ_ONLY`**: the user's database is opened with `access_mode=READ_ONLY`, so queries
+can read but never change it. It applies from the user's next connection, and the console shows
+*Personal database (read-only)* to that user. It is not applied to admins, who work on the metadata database. See
+[Privileges](authentication.md#privileges).
 
 Users without the admin role never see the menu, and the server refuses its calls (`/management/users`,
 `/management/roles`) with `403` whatever the client sends. See [Roles](rest-api.md#roles) and

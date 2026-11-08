@@ -17,14 +17,17 @@ not checked against a running instance.
 | `POST` | `/api/login` | none | Exchanges a username and password for a JWT. |
 | `GET` | `/management/databases` | admin | Lists the databases attached to the DuckDB engine (`PRAGMA show_databases`). |
 | `GET` | `/management/schemas` | admin | Lists the schemas of the engine (rows of `duckdb_schemas()`). |
-| `GET` | `/management/users` | admin | Lists users: `username`, `roles`, `protected` (the built-in admin user), `created_at` and `databases` (the files registered in `opencanard_databases`). Password hashes are not returned. |
+| `GET` | `/management/users` | admin | Lists users: `username`, `roles`, `protected` (the built-in admin user), `created_at`, `databases` (the files registered in `opencanard_databases`), `privileges` (granted to the user) and `effectivePrivileges` (also those of its roles). Password hashes are not returned. |
 | `POST` | `/management/users` | admin | Creates a user and the user's own DuckDB file, see [Creating a user](#creating-a-user). |
 | `PUT` | `/management/users/{username}/roles` | admin | Replaces the roles of a user, see [Roles](#roles). |
 | `DELETE` | `/management/users/{username}` | admin | Deletes a user and its database files, see [Deleting a user](#deleting-a-user). |
-| `GET` | `/management/roles` | admin | Lists roles: `name`, `description`, `users` (how many have it), `builtIn`. |
+| `GET` | `/management/roles` | admin | Lists roles: `name`, `description`, `users` (how many have it), `privileges`, `builtIn`. |
 | `POST` | `/management/roles` | admin | Creates a role, see [Roles](#roles). |
 | `PUT` | `/management/roles/{name}` | admin | Changes the description and the name of a role. |
 | `DELETE` | `/management/roles/{name}` | admin | Deletes a role and removes it from its users. |
+| `GET` | `/management/privileges` | admin | Lists the privileges that can be granted: `name`, `description`. See [Privileges](#privileges). |
+| `PUT` / `DELETE` | `/management/users/{username}/privileges/{privilege}` | admin | Grants / revokes a privilege on a user. |
+| `PUT` / `DELETE` | `/management/roles/{name}/privileges/{privilege}` | admin | Grants / revokes a privilege on a role. |
 | `POST` | `/management/shutdown` | any authenticated user | Stops the server process immediately. |
 
 Error responses: `401` for missing or invalid credentials, `403` when the `admin` role is required and
@@ -121,6 +124,27 @@ curl -s -X PUT http://localhost:8084/management/users/david/roles -u admin:chang
 - A user needs at least one role, and every role must exist (`400` otherwise). The built-in admin user always
   keeps `admin`, and nobody can remove `admin` from their own account (`400`).
 - A user that stops being an admin starts working on its personal database, created then if it has none.
+
+### Privileges
+
+Privileges are granted to a user or to a role; a user has a privilege when it was granted to it or to one of its
+roles. The only one today is `READ_ONLY` (see [Privileges](authentication.md#privileges)).
+
+```bash
+# grant READ_ONLY to a user, then revoke it
+curl -s -X PUT    http://localhost:8084/management/users/david/privileges/READ_ONLY -u admin:change-me
+curl -s -X DELETE http://localhost:8084/management/users/david/privileges/READ_ONLY -u admin:change-me
+# every user with the role analyst becomes read-only
+curl -s -X PUT    http://localhost:8084/management/roles/analyst/privileges/READ_ONLY -u admin:change-me
+```
+
+- Users answer `{"username", "privileges", "effectivePrivileges"}`, roles `{"name", "privileges"}`. Granting a
+  privilege that is already there, or revoking one that is not, changes nothing and still answers `200`.
+- `400` for an unknown privilege, `404` for an unknown user or role.
+- Revoking from a user only removes the direct grant: a privilege that comes from a role stays until it is revoked
+  from the role (or the role from the user).
+- Renaming a role keeps its privileges; deleting a role or a user removes its grants.
+- `GET /api/session` tells the caller whether its database is read-only (`readOnly`).
 
 ## Notes and limitations
 

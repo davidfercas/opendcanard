@@ -55,6 +55,7 @@ import io.opencanard.user.UserConnections;
 import io.opencanard.user.UserDatabases;
 import io.opencanard.user.RoleRepository;
 import io.opencanard.user.RoleService;
+import io.opencanard.user.PrivilegeRepository;
 import io.opencanard.user.UserRepository;
 import io.opencanard.user.UserService;
 import io.opencanard.query.RunningQueries;
@@ -276,6 +277,9 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 				// built-in roles; users of earlier versions had one "role" column, moved here and then dropped
 				migrateRoles(conn);
 
+				// 1b'. privileges granted to users and to roles (READ_ONLY, ...): create only if missing
+				migratePrivileges(conn);
+
 				// 1b. opencanard_databases table (login -> duckdb file): create only if it does not exist
 				boolean dbTableExists;
 				try (Statement stmt = conn.createStatement();
@@ -438,6 +442,22 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 			throw e;
 		} finally {
 			conn.setAutoCommit(autoCommit);
+		}
+	}
+
+	/** Creates the privilege tables ({@link PrivilegeRepository}) when missing. Idempotent. */
+	private static void migratePrivileges(Connection conn) throws SQLException {
+		if (!tableExists(conn, "opencanard_user_privileges")) {
+			try (Statement stmt = conn.createStatement()) {
+				stmt.execute(PrivilegeRepository.CREATE_USER_PRIVILEGES_TABLE);
+			}
+			logger.info("[metadata-init] table opencanard_user_privileges created");
+		}
+		if (!tableExists(conn, "opencanard_role_privileges")) {
+			try (Statement stmt = conn.createStatement()) {
+				stmt.execute(PrivilegeRepository.CREATE_ROLE_PRIVILEGES_TABLE);
+			}
+			logger.info("[metadata-init] table opencanard_role_privileges created");
 		}
 	}
 

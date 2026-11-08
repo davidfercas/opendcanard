@@ -56,8 +56,9 @@ public class ConsoleController {
 	}
 
 	@OpenApi(path = "/api/session", methods = HttpMethod.GET, summary = "Who is connected to the console",
-			description = "Returns the login, whether it is an admin, the database the console works on and how many "
-					+ "past queries the console keeps (historySize, from console.history.size).",
+			description = "Returns the login, whether it is an admin, the database the console works on, whether it is "
+					+ "opened read-only (privilege READ_ONLY) and how many past queries the console keeps (historySize, "
+					+ "from console.history.size).",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Console" },
 			responses = { @OpenApiResponse(status = "200", content = @OpenApiContent(from = Map.class)),
 					@OpenApiResponse(status = "401", description = "Missing or invalid credentials") })
@@ -68,6 +69,15 @@ public class ConsoleController {
 		out.put("username", login);
 		out.put("admin", admin);
 		out.put("database", admin ? "metadata" : "personal");
+		boolean readOnly = false;
+		if (!admin) {
+			try {
+				readOnly = userConnections.isReadOnly(login);
+			} catch (java.sql.SQLException e) {
+				logger.warn("Cannot read the privileges of '{}': {}", login, e.getMessage());
+			}
+		}
+		out.put("readOnly", readOnly);
 		out.put("historySize", historySize);
 		ctx.json(out);
 	}

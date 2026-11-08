@@ -15,7 +15,8 @@ import org.duckdb.DuckDBConnection;
  * <li>The built-in roles {@code admin} and {@code user} always exist: they cannot be deleted or renamed, only their
  * description changes. {@code admin} is the role that gives access to the administration and the metadata
  * database; {@code user} is the default role of a new user.</li>
- * <li>Renaming a role moves its assignments to the new name; deleting it removes it from every user.</li>
+ * <li>Renaming a role moves its assignments and privileges to the new name; deleting it removes it from every user
+ * and drops its privileges.</li>
  * </ul>
  * Changes run under the lock of {@link UserService}, so they never interleave with a user being created, changed
  * or deleted, and each one runs in its own transaction on a duplicate of the metadata connection.
@@ -36,6 +37,7 @@ public class RoleService {
 	private final Connection metadatadb;
 	private final Object lock;
 	private final RoleRepository repository = new RoleRepository();
+	private final PrivilegeRepository privileges = new PrivilegeRepository();
 
 	/** @param lock the {@link UserService}, whose monitor serializes every change to users and roles */
 	public RoleService(Connection metadatadb, Object lock) {
@@ -111,6 +113,7 @@ public class RoleService {
 				try {
 					repository.insert(c, target, d);
 					repository.renameAssignments(c, name, target);
+					privileges.renameRole(c, name, target);
 					repository.delete(c, name);
 					c.commit();
 				} catch (SQLException e) {
@@ -138,6 +141,7 @@ public class RoleService {
 				}
 				c.setAutoCommit(false);
 				try {
+					privileges.deleteByRole(c, name);
 					repository.delete(c, name);
 					c.commit();
 				} catch (SQLException e) {

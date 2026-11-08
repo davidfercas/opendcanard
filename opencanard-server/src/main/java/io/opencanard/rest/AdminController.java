@@ -29,6 +29,9 @@ import io.javalin.openapi.OpenApiSecurity;
 import io.opencanard.user.DatabaseRegistry;
 import io.opencanard.user.NotAllowedException;
 import io.opencanard.user.NotFoundException;
+import io.opencanard.user.PrivilegeRepository;
+import io.opencanard.user.PrivilegeService;
+import io.opencanard.user.Privileges;
 import io.opencanard.user.RoleAlreadyExistsException;
 import io.opencanard.user.RoleRepository;
 import io.opencanard.user.RoleService;
@@ -37,8 +40,9 @@ import io.opencanard.user.UserAlreadyExistsException;
 import io.opencanard.user.UserService;
 
 /**
- * The administration endpoints behind the console's Administration menu: users ({@code /management/users}) and roles
- * ({@code /management/roles}). Every one of them requires the role {@code admin}, read from the users tables on each
+ * The administration endpoints behind the console's Administration menu: users ({@code /management/users}), roles
+ * ({@code /management/roles}) and the privileges granted to them ({@code /management/privileges},
+ * {@code .../{name}/privileges/{privilege}}). Every one of them requires the role {@code admin}, read from the users tables on each
  * call by {@link AuthMiddleware}.
  * <p>
  * Errors: {@code 400} invalid input or a protected operation (deleting the built-in admin user or your own account,
@@ -52,18 +56,22 @@ public class AdminController {
 	private final Connection metadatadb;
 	private final UserService users;
 	private final RoleService roles;
+	private final PrivilegeService privileges;
 
 	public AdminController(Connection metadatadb, UserService users) {
 		this.metadatadb = metadatadb;
 		this.users = users;
 		this.roles = new RoleService(metadatadb, users);
+		this.privileges = new PrivilegeService(metadatadb, users);
 	}
 
 	// ---------- users ----------
 
 	@OpenApi(path = "/management/users", methods = HttpMethod.GET, summary = "List users",
-			description = "Lists the users with their roles and database files (never their password hashes). "
-					+ "'protected' marks the built-in admin user, which cannot be deleted. Requires the admin role.",
+			description = "Lists the users with their roles, database files and privileges (never their password "
+					+ "hashes). 'privileges' are granted to the user directly, 'effectivePrivileges' also include the "
+					+ "ones of its roles. 'protected' marks the built-in admin user, which cannot be deleted. "
+					+ "Requires the admin role.",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Management" },
 			responses = { @OpenApiResponse(status = "200", description = "List of users"),
 					@OpenApiResponse(status = "401", description = "Missing or invalid credentials"),
@@ -78,6 +86,9 @@ public class AdminController {
 				databases.computeIfAbsent(e.getLogin(), k -> new ArrayList<>()).add(e.getDuckdbFile());
 			}
 			Map<String, List<String>> rolesByUser = new RoleRepository().rolesByUser(c);
+			PrivilegeRepository privilegeRepository = new PrivilegeRepository();
+			Map<String, List<String>> privilegesByUser = privilegeRepository.byUser(c);
+			Map<String, List<String>> privilegesByRole = privilegeRepository.byRole(c);
 
 			try (Statement st = c.createStatement();
 					ResultSet rs = st.executeQuery(
@@ -91,6 +102,13 @@ public class AdminController {
 					u.put("protected", users.isProtected(name));
 					u.put("created_at", created != null ? created.toString() : "");
 					u.put("databases", databases.getOrDefault(name, List.of()));
+					List<String> direct = privilegesByUser.getOrDefault(name, List.of());
+					java.util.TreeSet<String> effective = new java.util.TreeSet<>(direct);
+					for (String r : rolesByUser.getOrDefault(name, List.of())) {
+						effective.addAll(privilegesByRole.getOrDefault(r, List.of()));
+					}
+					u.put("privileges", direct);
+					u.put("effectivePrivileges", new ArrayList<>(effective));
 					out.add(u);
 				}
 			}
@@ -194,17 +212,23 @@ public class AdminController {
 	// ---------- roles ----------
 
 	@OpenApi(path = "/management/roles", methods = HttpMethod.GET, summary = "List roles",
-			description = "Lists the roles: name, description, number of users that have it and whether it is built in "
-					+ "(admin, user: they cannot be deleted or renamed). Requires the admin role.",
+			description = "Lists the roles: name, description, number of users that have it, its privileges and whether "
+					+ "it is built in (admin, user: they cannot be deleted or renamed). Requires the admin role.",
 			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Management" },
 			responses = { @OpenApiResponse(status = "200", description = "List of roles"),
 					@OpenApiResponse(status = "403", description = "User does not have the admin role") })
 	public void listRoles(Context ctx) {
 		requireAdmin(ctx);
 		try {
+			Map<String, List<String>> byRole;
+			try (Connection c = duplicate()) {
+				byRole = new PrivilegeRepository().byRole(c);
+			}
 			List<Map<String, Object>> out = new ArrayList<>();
 			for (RoleRepository.Role r : roles.list()) {
-				out.add(role(r));
+				Map<String, Object> m = role(r);
+				m.put("privileges", byRole.getOrDefault(r.getName(), List.of()));
+				out.add(m);
 			}
 			ctx.json(out);
 		} catch (SQLException e) {
@@ -286,6 +310,124 @@ public class AdminController {
 		} catch (Exception e) {
 			logger.error("Failed to delete role '{}'", name, e);
 			ctx.status(500).json(Map.of("title", "The role could not be deleted: " + e.getMessage()));
+		}
+	}
+
+	// ---------- privileges ----------
+
+	@OpenApi(path = "/management/privileges", methods = HttpMethod.GET, summary = "List privileges",
+			description = "Lists the privileges that can be granted to users and roles: [{name, description}]. "
+					+ "READ_ONLY opens the user's database with access_mode=READ_ONLY. Requires the admin role.",
+			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Management" },
+			responses = { @OpenApiResponse(status = "200", description = "List of privileges"),
+					@OpenApiResponse(status = "403", description = "User does not have the admin role") })
+	public void listPrivileges(Context ctx) {
+		requireAdmin(ctx);
+		List<Map<String, Object>> out = new ArrayList<>();
+		for (Privileges.Privilege p : Privileges.ALL) {
+			Map<String, Object> m = new LinkedHashMap<>();
+			m.put("name", p.getName());
+			m.put("description", p.getDescription());
+			out.add(m);
+		}
+		ctx.json(out);
+	}
+
+	@OpenApi(path = "/management/users/{username}/privileges/{privilege}", methods = HttpMethod.PUT,
+			summary = "Grant a privilege to a user",
+			description = "Grants the privilege to the user. It applies from the user's next connection. Granting a "
+					+ "privilege the user already has does nothing. Requires the admin role.",
+			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Management" },
+			pathParams = { @OpenApiParam(name = "username", required = true),
+					@OpenApiParam(name = "privilege", required = true, description = "For example READ_ONLY") },
+			responses = { @OpenApiResponse(status = "200", description = "{username, privileges, effectivePrivileges}"),
+					@OpenApiResponse(status = "400", description = "Unknown privilege"),
+					@OpenApiResponse(status = "403", description = "User does not have the admin role"),
+					@OpenApiResponse(status = "404", description = "The user does not exist") })
+	public void grantUserPrivilege(Context ctx) {
+		setUserPrivilege(ctx, true);
+	}
+
+	@OpenApi(path = "/management/users/{username}/privileges/{privilege}", methods = HttpMethod.DELETE,
+			summary = "Revoke a privilege from a user",
+			description = "Revokes a privilege granted to the user directly. A privilege the user gets through one of "
+					+ "its roles stays until it is revoked from the role ('effectivePrivileges' shows it). Requires "
+					+ "the admin role.",
+			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Management" },
+			pathParams = { @OpenApiParam(name = "username", required = true),
+					@OpenApiParam(name = "privilege", required = true) },
+			responses = { @OpenApiResponse(status = "200", description = "{username, privileges, effectivePrivileges}"),
+					@OpenApiResponse(status = "400", description = "Unknown privilege"),
+					@OpenApiResponse(status = "403", description = "User does not have the admin role"),
+					@OpenApiResponse(status = "404", description = "The user does not exist") })
+	public void revokeUserPrivilege(Context ctx) {
+		setUserPrivilege(ctx, false);
+	}
+
+	@OpenApi(path = "/management/roles/{name}/privileges/{privilege}", methods = HttpMethod.PUT,
+			summary = "Grant a privilege to a role",
+			description = "Grants the privilege to the role: every user with the role has it from its next connection. "
+					+ "Requires the admin role.",
+			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Management" },
+			pathParams = { @OpenApiParam(name = "name", required = true),
+					@OpenApiParam(name = "privilege", required = true, description = "For example READ_ONLY") },
+			responses = { @OpenApiResponse(status = "200", description = "{name, privileges}"),
+					@OpenApiResponse(status = "400", description = "Unknown privilege"),
+					@OpenApiResponse(status = "403", description = "User does not have the admin role"),
+					@OpenApiResponse(status = "404", description = "The role does not exist") })
+	public void grantRolePrivilege(Context ctx) {
+		setRolePrivilege(ctx, true);
+	}
+
+	@OpenApi(path = "/management/roles/{name}/privileges/{privilege}", methods = HttpMethod.DELETE,
+			summary = "Revoke a privilege from a role",
+			description = "Revokes the privilege from the role. Requires the admin role.",
+			security = { @OpenApiSecurity(name = "basicAuth") }, tags = { "Management" },
+			pathParams = { @OpenApiParam(name = "name", required = true),
+					@OpenApiParam(name = "privilege", required = true) },
+			responses = { @OpenApiResponse(status = "200", description = "{name, privileges}"),
+					@OpenApiResponse(status = "400", description = "Unknown privilege"),
+					@OpenApiResponse(status = "403", description = "User does not have the admin role"),
+					@OpenApiResponse(status = "404", description = "The role does not exist") })
+	public void revokeRolePrivilege(Context ctx) {
+		setRolePrivilege(ctx, false);
+	}
+
+	private void setUserPrivilege(Context ctx, boolean granted) {
+		requireAdmin(ctx);
+		String username = ctx.pathParam("username");
+		String privilege = ctx.pathParam("privilege");
+		try {
+			List<String> direct = privileges.setForUser(username, privilege, granted, ctx.attribute("username"));
+			Map<String, Object> out = new LinkedHashMap<>();
+			out.put("username", username);
+			out.put("privileges", direct);
+			out.put("effectivePrivileges", privileges.effective(username));
+			ctx.json(out);
+		} catch (IllegalArgumentException e) {
+			throw new BadRequestResponse(e.getMessage());
+		} catch (NotFoundException e) {
+			throw new NotFoundResponse(e.getMessage());
+		} catch (Exception e) {
+			logger.error("Failed to {} {} for user '{}'", granted ? "grant" : "revoke", privilege, username, e);
+			ctx.status(500).json(Map.of("title", "The privilege could not be changed: " + e.getMessage()));
+		}
+	}
+
+	private void setRolePrivilege(Context ctx, boolean granted) {
+		requireAdmin(ctx);
+		String name = ctx.pathParam("name");
+		String privilege = ctx.pathParam("privilege");
+		try {
+			List<String> rolePrivileges = privileges.setForRole(name, privilege, granted, ctx.attribute("username"));
+			ctx.json(Map.of("name", name, "privileges", rolePrivileges));
+		} catch (IllegalArgumentException e) {
+			throw new BadRequestResponse(e.getMessage());
+		} catch (NotFoundException e) {
+			throw new NotFoundResponse(e.getMessage());
+		} catch (Exception e) {
+			logger.error("Failed to {} {} for role '{}'", granted ? "grant" : "revoke", privilege, name, e);
+			ctx.status(500).json(Map.of("title", "The privilege could not be changed: " + e.getMessage()));
 		}
 	}
 

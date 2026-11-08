@@ -192,6 +192,7 @@ import hmac
 import json
 import time
 import urllib.request
+import urllib.error
 
 REST = os.environ.get("OC_REST_URI", "http://localhost:8084")
 # The signing key is still compiled into the server (issue #12); the tests sign their own tokens with it
@@ -309,3 +310,113 @@ def test_tokens_of_a_deleted_user_stop_working():
     refused(with_header("Bearer " + jwt))
     refused(flight.FlightCallOptions(headers=[issued]))
     refused(basic(temp))
+
+
+# ---------- privileges: READ_ONLY ----------
+
+def rest_status(method, path, auth):
+    try:
+        rest(method, path, auth=auth)
+        return 200
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+def connect_when_ready(user, attempts=20):
+    """The access mode changes once the connections opened before are closed; give the server a moment."""
+    last = None
+    for _ in range(attempts):
+        conn = connect(user)
+        try:
+            query(conn, "SELECT 1")
+            return conn
+        except adbc_driver_manager.Error as e:
+            last = e
+            conn.close()
+            time.sleep(0.25)
+    raise last
+
+
+def assert_write_refused(conn):
+    with pytest.raises(adbc_driver_manager.Error) as e:
+        query(conn, "INSERT INTO notes VALUES (2, 'no')")
+    assert "read-only" in str(e.value).lower()
+
+
+@pytest.fixture()
+def reader():
+    user = ("reader", "reader-pw")
+    rest("POST", "/management/users", {"username": user[0], "password": user[1]}, auth=ADMIN)
+    try:
+        conn = connect(user)
+        query(conn, "CREATE TABLE notes(id INTEGER, txt VARCHAR)")
+        query(conn, "INSERT INTO notes VALUES (1, 'yes')")
+        conn.close()
+        yield user
+    finally:
+        rest("DELETE", "/management/users/" + user[0], auth=ADMIN)
+
+
+def test_privileges_are_listed():
+    names = [p["name"] for p in rest("GET", "/management/privileges", auth=ADMIN)]
+    assert "READ_ONLY" in names
+
+
+def test_read_only_granted_to_the_user(reader):
+    done = rest("PUT", "/management/users/reader/privileges/READ_ONLY", auth=ADMIN)
+    assert done["privileges"] == ["READ_ONLY"] and done["effectivePrivileges"] == ["READ_ONLY"]
+    session = rest("GET", "/api/session", auth=reader)
+    assert session["readOnly"] is True
+
+    conn = connect_when_ready(reader)
+    try:
+        assert query(conn, "SELECT txt FROM notes").column("txt").to_pylist() == ["yes"]
+        assert_write_refused(conn)
+        with pytest.raises(adbc_driver_manager.Error):
+            query(conn, "CREATE TABLE other(a INTEGER)")
+    finally:
+        conn.close()
+
+    done = rest("DELETE", "/management/users/reader/privileges/READ_ONLY", auth=ADMIN)
+    assert done["privileges"] == []
+    conn = connect_when_ready(reader)
+    try:
+        query(conn, "INSERT INTO notes VALUES (3, 'again')")
+        assert query(conn, "SELECT count(*) AS n FROM notes").column("n").to_pylist() == [2]
+    finally:
+        conn.close()
+
+
+def test_read_only_granted_through_a_role(reader):
+    rest("POST", "/management/roles", {"name": "viewers", "description": "Read only"}, auth=ADMIN)
+    try:
+        assert rest("PUT", "/management/roles/viewers/privileges/READ_ONLY", auth=ADMIN)["privileges"] == ["READ_ONLY"]
+        rest("PUT", "/management/users/reader/roles", {"roles": ["user", "viewers"]}, auth=ADMIN)
+        user = next(u for u in rest("GET", "/management/users", auth=ADMIN) if u["username"] == "reader")
+        assert user["privileges"] == [] and user["effectivePrivileges"] == ["READ_ONLY"]
+        conn = connect_when_ready(reader)
+        try:
+            assert_write_refused(conn)
+        finally:
+            conn.close()
+        # renaming the role keeps its privileges
+        rest("PUT", "/management/roles/viewers", {"name": "readers", "description": "Read only"}, auth=ADMIN)
+        role = next(r for r in rest("GET", "/management/roles", auth=ADMIN) if r["name"] == "readers")
+        assert role["privileges"] == ["READ_ONLY"]
+    finally:
+        for name in ("viewers", "readers"):
+            if rest_status("DELETE", "/management/roles/" + name, ADMIN) == 200:
+                break
+    # deleting the role drops the privilege
+    conn = connect_when_ready(reader)
+    try:
+        query(conn, "INSERT INTO notes VALUES (4, 'writable')")
+    finally:
+        conn.close()
+
+
+def test_privilege_errors():
+    assert rest_status("PUT", "/management/users/alice/privileges/NOT_A_PRIVILEGE", ADMIN) == 400
+    assert rest_status("PUT", "/management/users/nobody/privileges/READ_ONLY", ADMIN) == 404
+    assert rest_status("PUT", "/management/roles/nothing/privileges/READ_ONLY", ADMIN) == 404
+    assert rest_status("PUT", "/management/users/alice/privileges/READ_ONLY", BOB) == 403
