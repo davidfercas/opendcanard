@@ -116,6 +116,14 @@ public class StorageRepository {
 		}
 	}
 
+	/** Removes every storage of the login (used when the user is deleted). */
+	public int deleteByLogin(Connection db, String login) throws SQLException {
+		try (PreparedStatement ps = db.prepareStatement("DELETE FROM main.opencanard_storages WHERE login = ?")) {
+			ps.setString(1, login);
+			return ps.executeUpdate();
+		}
+	}
+
 	private static StorageConfig read(ResultSet rs) throws SQLException {
 		return new StorageConfig(rs.getString("login"), rs.getString("name"), rs.getString("bucket"),
 				rs.getString("region"), rs.getString("endpoint"), rs.getString("url_style"), rs.getBoolean("use_ssl"),

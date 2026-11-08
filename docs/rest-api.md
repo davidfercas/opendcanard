@@ -17,8 +17,14 @@ not checked against a running instance.
 | `POST` | `/api/login` | none | Exchanges a username and password for a JWT. |
 | `GET` | `/management/databases` | admin | Lists the databases attached to the DuckDB engine (`PRAGMA show_databases`). |
 | `GET` | `/management/schemas` | admin | Lists the schemas of the engine (rows of `duckdb_schemas()`). |
-| `GET` | `/management/users` | admin | Lists users: `username`, `role`, `created_at`. Password hashes are not returned. |
+| `GET` | `/management/users` | admin | Lists users: `username`, `roles`, `protected` (the built-in admin user), `created_at` and `databases` (the files registered in `opencanard_databases`). Password hashes are not returned. |
 | `POST` | `/management/users` | admin | Creates a user and the user's own DuckDB file, see [Creating a user](#creating-a-user). |
+| `PUT` | `/management/users/{username}/roles` | admin | Replaces the roles of a user, see [Roles](#roles). |
+| `DELETE` | `/management/users/{username}` | admin | Deletes a user and its database files, see [Deleting a user](#deleting-a-user). |
+| `GET` | `/management/roles` | admin | Lists roles: `name`, `description`, `users` (how many have it), `builtIn`. |
+| `POST` | `/management/roles` | admin | Creates a role, see [Roles](#roles). |
+| `PUT` | `/management/roles/{name}` | admin | Changes the description and the name of a role. |
+| `DELETE` | `/management/roles/{name}` | admin | Deletes a role and removes it from its users. |
 | `POST` | `/management/shutdown` | any authenticated user | Stops the server process immediately. |
 
 Error responses: `401` for missing or invalid credentials, `403` when the `admin` role is required and
@@ -58,24 +64,63 @@ curl -s http://localhost:8084/management/users -u admin:change-me
 ```bash
 curl -s -X POST http://localhost:8084/management/users -u admin:change-me \
   -H 'Content-Type: application/json' \
-  -d '{"username": "david", "password": "s3cret", "role": "user"}'
+  -d '{"username": "david", "password": "s3cret", "roles": ["user", "analyst"]}'
 ```
 
 ```json
-{ "username": "david", "role": "user", "database": "david.duckdb" }
+{ "username": "david", "roles": ["analyst", "user"], "database": "david.duckdb" }
 ```
 
 | Field | Rules |
 | --- | --- |
 | `username` | 1 to 64 characters: letters, digits, `_` and `-`; must start with a letter or digit. It is also the file name of the user's database, so dots, slashes, spaces and Windows device names (`CON`, `NUL`, `COM1`...) are rejected. |
 | `password` | Required, at most 72 bytes (the limit of bcrypt). Stored as a bcrypt hash. |
-| `role` | `admin` or `user`. Optional, default `user`. |
+| `roles` | Names of existing roles. Optional, default `["user"]`. A single `"role": "..."` (earlier versions) is still accepted. |
 
 The call returns `201` and creates three things: the user's own empty DuckDB file
 `data/users/<username>.duckdb`, a row in `opencanard_databases` (login, database name, file, creation date) and a
-row in `opencanard_users`. If one of them cannot be created the others are removed again. It returns
+row in `opencanard_users` with its roles. If one of them cannot be created the others are removed again. It returns
 `409` if the user exists, or if a file `data/users/<username>.duckdb` is already there (for example left over
 from an interrupted creation: it is never overwritten, remove it first if it is not in use).
+
+### Deleting a user
+
+```bash
+curl -s -X DELETE http://localhost:8084/management/users/alice -u admin:change-me
+# {"username": "alice", "removedFiles": ["alice.duckdb"]}
+```
+
+The call closes and removes from `data/users/` every DuckDB file registered for the login in
+`opencanard_databases` (and `<username>.duckdb` if it is there), with its `.wal`; then it deletes the login's rows
+in `opencanard_databases`, `opencanard_storages`, `opencanard_user_roles` and `opencanard_users`. The files go first: if one cannot be removed
+(on Windows, for example, while a query still holds it open) the call answers `500` and the user is kept, so it
+can be retried. It answers `404` if the user does not exist and `400` for the built-in admin user (`admin.user`),
+which nobody can delete, or for the caller's own account.
+
+Bearer tokens are checked against the users table on every call: a deleted user's token stops working at once,
+and a token issued to an admin stops granting the admin role as soon as the user loses it.
+
+### Roles
+
+```bash
+# create, rename (it stays on its users) and delete a role
+curl -s -X POST http://localhost:8084/management/roles -u admin:change-me \
+  -H 'Content-Type: application/json' -d '{"name": "analyst", "description": "Reports"}'
+curl -s -X PUT http://localhost:8084/management/roles/analyst -u admin:change-me \
+  -H 'Content-Type: application/json' -d '{"name": "analysts", "description": "Reporting team"}'
+curl -s -X DELETE http://localhost:8084/management/roles/analysts -u admin:change-me
+
+# give a user one or more roles (replaces the ones it had)
+curl -s -X PUT http://localhost:8084/management/users/david/roles -u admin:change-me \
+  -H 'Content-Type: application/json' -d '{"roles": ["user", "analyst"]}'
+```
+
+- Role names: 1 to 64 characters, letters, digits, `_`, `-` and `.`, starting with a letter or digit.
+  Descriptions: at most 256 characters.
+- `admin` and `user` are built in: deleting or renaming them answers `400`; their description can change.
+- A user needs at least one role, and every role must exist (`400` otherwise). The built-in admin user always
+  keeps `admin`, and nobody can remove `admin` from their own account (`400`).
+- A user that stops being an admin starts working on its personal database, created then if it has none.
 
 ## Notes and limitations
 

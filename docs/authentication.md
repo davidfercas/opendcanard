@@ -21,9 +21,40 @@ data away from other users of that network.
 ## Users
 
 Users live in the table `main.opencanard_users` of the **metadata** database
-(`metadata/metadata.duckdb`). Each user has one role. The REST management endpoints (except
-shutdown, see [known limitations](#known-limitations)) require the role `admin`, written exactly like
-that in lowercase; any other value gives no management access.
+(`metadata/metadata.duckdb`). A user can have several roles, see [Roles](#roles). The REST management
+endpoints (except shutdown, see [known limitations](#known-limitations)) require the role `admin`, written
+exactly like that in lowercase; no other role gives management access.
+
+### Roles
+
+Roles are kept in their own tables, also in the metadata database:
+
+```sql
+CREATE TABLE opencanard_roles(
+    name        VARCHAR PRIMARY KEY,
+    description VARCHAR NOT NULL DEFAULT ''
+);
+
+CREATE TABLE opencanard_user_roles(       -- which roles each user has
+    username  VARCHAR NOT NULL,
+    role_name VARCHAR NOT NULL,
+    PRIMARY KEY (username, role_name)
+);
+```
+
+- `admin` and `user` are built in: the server adds them at every start if they are missing, and they cannot
+  be deleted or renamed (their description can change). `admin` gives the administration (users and roles) and
+  the metadata database; `user` is the default role of a new user.
+- Admins create, change and delete the other roles from the console (**Administration → Roles**) or the
+  REST API, see [Roles](rest-api.md#roles). Renaming a role keeps it on every user that has it; deleting it
+  removes it from them.
+- The **built-in admin user** (`admin.user`) can never be deleted and always keeps the role `admin`; the server
+  gives the role back at startup if it was removed by hand. Nobody can delete their own account or remove `admin`
+  from themselves.
+
+Earlier versions kept one role per user in a `role` column of `opencanard_users`. At the first start of this
+version the server copies every value into `opencanard_user_roles` (adding any role that is not in
+`opencanard_roles`) and drops the column.
 
 ### Creating users
 
@@ -40,7 +71,6 @@ bcrypt hash):
 CREATE TABLE opencanard_users(
     username      VARCHAR PRIMARY KEY,
     password_hash VARCHAR NOT NULL,
-    "role"        VARCHAR NOT NULL,
     created_at    TIMESTAMP NOT NULL DEFAULT now()
 );
 ```
@@ -49,8 +79,9 @@ If the file already exists, nothing is created or changed. To add more users, op
 database with the [DuckDB CLI](https://duckdb.org/docs/installation/) and run:
 
 ```sql
-INSERT INTO main.opencanard_users (username, password_hash, role, created_at)
-VALUES ('someone', '<bcrypt hash>', 'admin', now());
+INSERT INTO main.opencanard_users (username, password_hash, created_at)
+VALUES ('someone', '<bcrypt hash>', now());
+INSERT INTO main.opencanard_user_roles (username, role_name) VALUES ('someone', 'admin');
 ```
 
 DuckDB allows only one process to open a database file for writing, so stop the server before running
@@ -90,12 +121,13 @@ first call and kept open until the server stops.
 
 - **Admins** (role `admin`, including the admin created on the first start) do not use a personal database:
   their Flight calls run on the **metadata** database, so an admin can query `opencanard_users` and
-  `opencanard_databases`. The role is read from `opencanard_users` on every call. Because that database holds
+  `opencanard_databases`. The roles are read from `opencanard_user_roles` on every call. Because that database holds
   the password hashes, admin Flight access is full read-write access to it.
 - **Every other user** must have a row in `opencanard_databases`. A login without one, a missing file, or the
   unknown `Bearer` token is refused with an error. There is no shared database fallback.
 - **Creating a user** through the REST API creates the file `data/users/<login>.duckdb`, the row in
-  `opencanard_databases` and the row in `opencanard_users`, and removes whatever was created if one step fails.
+  `opencanard_databases`, the row in `opencanard_users` and its roles, and removes whatever was created if one step
+  fails. A user that loses the role `admin` gets its personal database at that moment if it has none.
 - **At every start** the server checks the registry: each non-admin user without a row gets one (an existing
   `<login>.duckdb` is registered, otherwise an empty file is created and registered), and a registered file
   that does not exist is logged as an error. Look for `[user-db]` in the log. Users inserted by hand in SQL are

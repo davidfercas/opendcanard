@@ -83,8 +83,8 @@ the log ends up in `logs/`; if you start the JVM by other means, do it from the 
 
 - The analytics database (`data/opencanard.duckdb`) and the metadata database
   (`metadata/metadata.duckdb`) are opened in read-write mode and are created if they do not exist.
-  When the metadata database is created, the server also creates the `opencanard_users` table and
-  inserts the admin user from `admin.user` / `admin.password`.
+  When the metadata database is created, the server also creates the `opencanard_users`, `opencanard_roles` and
+  `opencanard_user_roles` tables and inserts the admin user (with the role `admin`) from `admin.user` / `admin.password`.
 - On startup the server runs `INSTALL arrow;` and `LOAD arrow;` in DuckDB. DuckDB downloads
   extensions on first use, so the first start may need Internet access.
 - To query Parquet files or S3 data, use DuckDB's own functions from your SQL

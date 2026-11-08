@@ -55,6 +55,9 @@ import io.opencanard.storage.StorageRepository;
 import io.opencanard.storage.StorageService;
 import io.opencanard.user.UserConnections;
 import io.opencanard.user.UserDatabases;
+import io.opencanard.user.RoleRepository;
+import io.opencanard.user.RoleService;
+import io.opencanard.user.UserRepository;
 import io.opencanard.user.UserService;
 import io.opencanard.query.RunningQueries;
 import io.opencanard.util.DuckDBArrowUtil;
@@ -203,7 +206,7 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		// REST API (Javalin): all endpoints live in the io.opencanard.rest package
 		this.userDatabases = new UserDatabases(Paths.get(DATA_DIR, "users"), this.metadatadb);
 		this.userDatabases.reconcile();
-		UserService userService = new UserService(this.metadatadb, this.userDatabases);
+		UserService userService = new UserService(this.metadatadb, this.userDatabases, ADMIN_USER);
 		StorageService storageService;
 		try {
 			// key: env OPENCANARD_STORAGE_KEY, property opencanard.storage.key, or the file metadata/storage.key
@@ -270,12 +273,14 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 					logger.info("[metadata-init] table opencanard_users already exists, skipping creation");
 				} else {
 					try (Statement stmt = conn.createStatement()) {
-						stmt.execute("CREATE TABLE opencanard_users(username VARCHAR PRIMARY KEY, "
-								+ "password_hash VARCHAR NOT NULL, \"role\" VARCHAR NOT NULL, "
-								+ "created_at TIMESTAMP NOT NULL DEFAULT now())");
+						stmt.execute(UserRepository.CREATE_TABLE);
 					}
 					logger.info("[metadata-init] table opencanard_users created");
 				}
+
+				// 1a. roles: opencanard_roles (name, description) and opencanard_user_roles (user -> roles), with the
+				// built-in roles; users of earlier versions had one "role" column, moved here and then dropped
+				migrateRoles(conn);
 
 				// 1b. opencanard_databases table (login -> duckdb file): create only if it does not exist
 				boolean dbTableExists;
@@ -326,14 +331,18 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 					String passwordHash = new BCryptPasswordEncoder().encode(ADMIN_PASSWORD);
 					logger.info("[metadata-init] password hashed with BCrypt (prefix={}, length={})",
 							passwordHash.substring(0, 7), passwordHash.length());
-					try (PreparedStatement ps = conn.prepareStatement(
-							"INSERT INTO opencanard_users(username, password_hash, \"role\", created_at) VALUES (?, ?, ?, now())")) {
-						ps.setString(1, ADMIN_USER);
-						ps.setString(2, passwordHash);
-						ps.setString(3, "admin");
-						int rows = ps.executeUpdate();
-						logger.info("[metadata-init] user '{}' inserted with role 'admin' (rows affected: {})",
-								ADMIN_USER, rows);
+					new UserRepository().insert(conn, ADMIN_USER, passwordHash);
+					logger.info("[metadata-init] user '{}' inserted", ADMIN_USER);
+				}
+				// The built-in admin user always has the admin role, also if it was taken away by hand
+				try (PreparedStatement ps = conn.prepareStatement("INSERT INTO opencanard_user_roles(username, role_name) "
+						+ "SELECT ?, ? WHERE NOT EXISTS (SELECT 1 FROM opencanard_user_roles WHERE username = ? AND role_name = ?)")) {
+					ps.setString(1, ADMIN_USER);
+					ps.setString(2, RoleService.ADMIN);
+					ps.setString(3, ADMIN_USER);
+					ps.setString(4, RoleService.ADMIN);
+					if (ps.executeUpdate() > 0) {
+						logger.info("[metadata-init] role 'admin' given to user '{}'", ADMIN_USER);
 					}
 				}
 
@@ -357,14 +366,15 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 			boolean adminFound = false;
 			try (Connection conn = DriverManager.getConnection(finalUrl);
 					Statement stmt = conn.createStatement();
-					ResultSet rs = stmt.executeQuery(
-							"SELECT username, \"role\", created_at FROM opencanard_users ORDER BY username")) {
+					ResultSet rs = stmt.executeQuery("SELECT u.username, u.created_at, "
+							+ "(SELECT string_agg(r.role_name, ', ' ORDER BY r.role_name) FROM opencanard_user_roles r "
+							+ "WHERE r.username = u.username) AS roles FROM opencanard_users u ORDER BY u.username")) {
 				while (rs.next()) {
 					users++;
 					String username = rs.getString("username");
 					adminFound |= ADMIN_USER.equals(username);
-					logger.info("[metadata-init] verified user '{}' role '{}' created_at {}", username,
-							rs.getString("role"), rs.getTimestamp("created_at"));
+					logger.info("[metadata-init] verified user '{}' roles [{}] created_at {}", username,
+							rs.getString("roles"), rs.getTimestamp("created_at"));
 				}
 			}
 			if (!adminFound) {
@@ -380,6 +390,70 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 				Files.deleteIfExists(tmpWal);
 			}
 			throw e;
+		}
+	}
+
+	/**
+	 * Creates the roles tables when missing, adds the built-in roles and moves the single {@code role} column of
+	 * {@code opencanard_users} (earlier versions) into {@code opencanard_user_roles}, then drops the column. Idempotent.
+	 */
+	private static void migrateRoles(Connection conn) throws SQLException {
+		if (!tableExists(conn, "opencanard_roles")) {
+			try (Statement stmt = conn.createStatement()) {
+				stmt.execute(RoleRepository.CREATE_ROLES_TABLE);
+			}
+			logger.info("[metadata-init] table opencanard_roles created");
+		}
+		if (!tableExists(conn, "opencanard_user_roles")) {
+			try (Statement stmt = conn.createStatement()) {
+				stmt.execute(RoleRepository.CREATE_USER_ROLES_TABLE);
+			}
+			logger.info("[metadata-init] table opencanard_user_roles created");
+		}
+		RoleRepository roles = new RoleRepository();
+		roles.insertIfMissing(conn, RoleService.ADMIN, "Administrators: manage users and roles, work on the metadata database");
+		roles.insertIfMissing(conn, RoleService.USER, "Regular users: work on their own database");
+
+		boolean hasRoleColumn;
+		try (Statement stmt = conn.createStatement();
+				ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM information_schema.columns "
+						+ "WHERE table_schema = 'main' AND table_name = 'opencanard_users' AND column_name = 'role'")) {
+			hasRoleColumn = rs.next() && rs.getInt(1) > 0;
+		}
+		if (!hasRoleColumn) {
+			return;
+		}
+		logger.info("[metadata-init] moving opencanard_users.role into opencanard_user_roles");
+		boolean autoCommit = conn.getAutoCommit();
+		conn.setAutoCommit(false);
+		try (Statement stmt = conn.createStatement()) {
+			int newRoles = stmt.executeUpdate("INSERT INTO opencanard_roles(name, description) "
+					+ "SELECT DISTINCT u.\"role\", 'Migrated from the role column' FROM opencanard_users u "
+					+ "WHERE u.\"role\" IS NOT NULL AND u.\"role\" <> '' "
+					+ "AND NOT EXISTS (SELECT 1 FROM opencanard_roles r WHERE r.name = u.\"role\")");
+			int assigned = stmt.executeUpdate("INSERT INTO opencanard_user_roles(username, role_name) "
+					+ "SELECT u.username, u.\"role\" FROM opencanard_users u "
+					+ "WHERE u.\"role\" IS NOT NULL AND u.\"role\" <> '' AND NOT EXISTS (SELECT 1 FROM opencanard_user_roles x "
+					+ "WHERE x.username = u.username AND x.role_name = u.\"role\")");
+			stmt.execute("ALTER TABLE opencanard_users DROP COLUMN \"role\"");
+			conn.commit();
+			logger.info("[metadata-init] {} role(s) added, {} assignment(s) moved, column role dropped", newRoles,
+					assigned);
+		} catch (SQLException e) {
+			conn.rollback();
+			throw e;
+		} finally {
+			conn.setAutoCommit(autoCommit);
+		}
+	}
+
+	private static boolean tableExists(Connection conn, String table) throws SQLException {
+		try (PreparedStatement ps = conn.prepareStatement("SELECT COUNT(*) FROM information_schema.tables "
+				+ "WHERE table_schema = 'main' AND table_name = ?")) {
+			ps.setString(1, table);
+			try (ResultSet rs = ps.executeQuery()) {
+				return rs.next() && rs.getInt(1) > 0;
+			}
 		}
 	}
 

@@ -286,3 +286,64 @@ table.grid.queries { width: 100%; table-layout: fixed; }
 .grid.queries th.w-action { width: 124px; }
 .grid.queries .btn.kill { min-width: 92px; }
 .q-tag { margin-left: 6px; padding: 1px 6px; border-radius: 10px; background: var(--teal-soft); color: var(--teal); font-size: 11px; font-weight: 600; }
+
+/* ---------- administration ---------- */
+.admin-menu { position: relative; }
+.admin-btn { display: inline-flex; align-items: center; gap: 6px; }
+.admin-btn .chev { width: 11px; height: 11px; transform: rotate(90deg); transition: transform .1s; }
+.admin-btn[aria-expanded="true"] { border-color: rgba(255,255,255,.28); }
+.admin-btn[aria-expanded="true"] .chev { transform: rotate(-90deg); }
+.admin-list { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; min-width: 190px; padding: 4px 0; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 10px 28px rgba(0,0,0,.22); }
+.admin-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 14px; background: transparent; border: 0; text-align: left; font-size: 13px; }
+.admin-item:hover, .admin-item:focus-visible { background: var(--panel-alt); }
+.admin-item .ico { color: var(--muted); }
+.new-user { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px 12px; align-items: end; padding: 12px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-alt); }
+.new-user .run { height: 34px; }
+.new-user .help { font-size: 12px; color: var(--muted); }
+.new-user .span-all { grid-column: 1 / -1; }
+@media (max-width: 640px) { .new-user { grid-template-columns: 1fr; } }
+.grid.users td.u-name { font-weight: 600; }
+.grid.users td.u-files { font-family: var(--mono); font-size: 12px; max-width: none; }
+.grid.users td.u-action { text-align: right; overflow: visible; }
+.grid.users th.w-role { width: 34%; }
+.grid.users th.w-created { width: 170px; }
+.grid.users th.w-action { width: 112px; }
+.grid.users th:last-child, .grid.users td:last-child { border-right: 0; }
+.grid.users tbody tr:last-child td { border-bottom: 0; }
+.grid.users td { font-family: var(--sans); font-size: 13px; vertical-align: middle; padding: 6px 12px; }
+.role-tag { padding: 1px 7px; border-radius: 10px; font-size: 11.5px; font-weight: 600; background: var(--panel-alt); border: 1px solid var(--line); }
+.role-tag.admin { background: var(--teal-soft); color: var(--teal); border-color: transparent; }
+.btn.danger-outline { color: var(--error); border-color: var(--error); }
+.btn.danger-outline:hover:not(:disabled) { background: var(--error-bg); }
+.btn.danger-outline:disabled { opacity: .45; cursor: not-allowed; }
+.file-list { margin: 0 0 8px; padding-left: 20px; font: 12.5px var(--mono); }
+.file-list:empty { display: none; }
+.role-form { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto auto; }
+.role-form .btn { height: 34px; }
+@media (max-width: 640px) { .role-form { grid-template-columns: 1fr; } }
+.role-picker { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.role-picker legend { float: left; font-size: 13px; font-weight: 600; margin-right: 6px; padding: 0; }
+.role-picker.stacked { display: grid; gap: 4px; margin-bottom: 8px; }
+.role-check { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 7px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); font-size: 13px; cursor: pointer; }
+.role-check:has(input:checked) { border-color: var(--teal); background: var(--teal-soft); }
+.role-check:has(input:disabled) { opacity: .7; cursor: not-allowed; }
+.role-picker.stacked .role-check { border-radius: 4px; padding: 6px 10px; }
+.role-check .desc { color: var(--muted); font-size: 12px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.grid.users td.u-roles { white-space: normal; max-width: none; }
+.grid.users td.u-roles .role-tag { display: inline-block; margin: 1px 4px 1px 0; }
+.grid.users th.w-action { width: 196px; }
+.u-action .btn + .btn { margin-left: 6px; }
+.grid.roles td { font-family: var(--sans); font-size: 13px; vertical-align: middle; padding: 6px 12px; }
+.grid.roles td.r-name { font-weight: 600; }
+.grid.roles td.r-desc { white-space: normal; max-width: none; color: var(--text); }
+.grid.roles td.r-users { font-variant-numeric: tabular-nums; text-align: right; }
+.grid.roles td.r-action { text-align: right; overflow: visible; }
+.grid.roles th.w-name { width: 22%; }
+.grid.roles th.w-users { width: 80px; text-align: right; }
+.grid.roles th.w-action { width: 196px; }
+.grid.roles th:last-child, .grid.roles td:last-child { border-right: 0; }
+.grid.roles tbody tr:last-child td { border-bottom: 0; }
+.grid.roles tr.is-editing td { background: var(--teal-soft); }
+.r-action .btn + .btn { margin-left: 6px; }
+.dialog form .dialog-note { margin: 0 0 8px; }

@@ -21,6 +21,8 @@
 		bucket: {},               // storage name -> folder path -> { folders, files, nextToken, loading, error }
 		s3open: new Set(),
 		epoch: 0,                 // bumped on every sign in and sign out; replies from an older epoch are dropped
+		users: [],                // users listed in Administration > Users (admins only)
+		roles: [],                // roles listed in Administration > Roles (admins only)
 		history: [],              // past queries of the signed-in user, newest first
 		historySize: 10
 	};
@@ -121,7 +123,7 @@
 		state.bucket = {};
 		state.s3open = new Set();
 		firstLoad = true;
-		['queriesDialog', 'storageDialog', 'removeDialog'].forEach(function (id) {
+		['queriesDialog', 'storageDialog', 'removeDialog', 'usersDialog', 'deleteUserDialog', 'userRolesDialog', 'rolesDialog', 'deleteRoleDialog'].forEach(function (id) {
 			var d = $(id);
 			if (d && d.open) d.close(); // closing the running-queries dialog also stops its refresh timer
 		});
@@ -135,6 +137,12 @@
 		$('resultBody').textContent = '';
 		closeHistory();
 		$('historyList').textContent = '';
+		closeAdminMenu();
+		$('adminMenu').hidden = true;
+		$('usersList').textContent = '';
+		$('rolesList').textContent = '';
+		state.users = [];
+		state.roles = [];
 	}
 
 	function showLogin(message) {
@@ -186,6 +194,7 @@
 			$('login').hidden = true;
 			$('app').hidden = false;
 			$('who').textContent = session.username + (session.admin ? ' (admin)' : '');
+			$('adminMenu').hidden = !session.admin; // the server checks the role again on every call
 			$('connLabel').textContent = session.admin ? 'Metadata database' : 'Personal database';
 			$('sql').focus();
 			loadStorages();
@@ -1118,6 +1127,440 @@
 			var next = event.key === 'ArrowDown' ? Math.min(items.length - 1, i + 1) : Math.max(0, i - 1);
 			if (items[next]) { items[next].focus(); event.preventDefault(); }
 		}
+	});
+
+	// ---------- administration (admin role only) ----------
+
+	function openAdminMenu() {
+		$('adminList').hidden = false;
+		$('adminBtn').setAttribute('aria-expanded', 'true');
+		$('adminUsers').focus();
+	}
+
+	function closeAdminMenu() {
+		$('adminList').hidden = true;
+		$('adminBtn').setAttribute('aria-expanded', 'false');
+	}
+
+	$('adminBtn').addEventListener('click', function () {
+		if ($('adminList').hidden) openAdminMenu(); else closeAdminMenu();
+	});
+	document.addEventListener('click', function (event) {
+		if (!$('adminList').hidden && !$('adminMenu').contains(event.target)) closeAdminMenu();
+	});
+	$('adminMenu').addEventListener('keydown', function (event) {
+		if (event.key === 'Escape' && !$('adminList').hidden) {
+			closeAdminMenu();
+			$('adminBtn').focus();
+			event.preventDefault();
+		}
+		if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && !$('adminList').hidden) {
+			var items = Array.prototype.slice.call($('adminList').querySelectorAll('.admin-item'));
+			var i = items.indexOf(document.activeElement);
+			var next = event.key === 'ArrowDown' ? Math.min(items.length - 1, i + 1) : Math.max(0, i - 1);
+			if (items[next]) { items[next].focus(); event.preventDefault(); }
+		}
+	});
+
+	function showNotice(id, message) {
+		var box = $(id);
+		box.textContent = message || '';
+		box.hidden = !message;
+	}
+
+	function adminError(e) { return e.status === 403 ? 'Only admins can do this.' : e.message; }
+
+	function roleTag(name) { return el('span', { class: 'role-tag' + (name === 'admin' ? ' admin' : ''), text: name }); }
+
+	/** Checkboxes for every role into a fieldset, keeping its legend. locked: names that cannot be unticked. */
+	function rolePicker(fieldset, roles, checked, locked, withDescription) {
+		Array.prototype.slice.call(fieldset.querySelectorAll('.role-check, .role-empty')).forEach(function (n) { n.remove(); });
+		if (roles.length === 0) {
+			fieldset.appendChild(el('span', { class: 'help role-empty', text: 'No roles yet.' }));
+			return;
+		}
+		roles.forEach(function (r) {
+			var box = el('input', { type: 'checkbox', value: r.name });
+			box.checked = checked.indexOf(r.name) >= 0;
+			var label = el('label', { class: 'role-check', title: r.description || '' }, [box, document.createTextNode(r.name)]);
+			if (locked && locked[r.name]) {
+				box.disabled = true;
+				label.title = locked[r.name];
+			}
+			if (withDescription && r.description) label.appendChild(el('span', { class: 'desc', text: '— ' + r.description }));
+			fieldset.appendChild(label);
+		});
+	}
+
+	function pickedRoles(fieldset) {
+		return Array.prototype.slice.call(fieldset.querySelectorAll('input[type=checkbox]'))
+			.filter(function (b) { return b.checked; }).map(function (b) { return b.value; });
+	}
+
+	function loadRoleList() {
+		return api('/management/roles').then(function (roles) {
+			state.roles = roles || [];
+			return state.roles;
+		});
+	}
+
+	// ----- users -----
+
+	var usersDialog = $('usersDialog');
+	var deleteUserDialog = $('deleteUserDialog');
+	var userRolesDialog = $('userRolesDialog');
+	var deletingUser = null;
+	var editingUser = null;
+
+	function loadUsers() {
+		var btn = $('usersRefresh');
+		var epoch = state.epoch;
+		btn.classList.add('busy');
+		return Promise.all([api('/management/users'), loadRoleList()]).then(function (r) {
+			if (epoch !== state.epoch) return;
+			state.users = r[0] || [];
+			renderUsers();
+			var keep = pickedRoles($('nuRoles'));
+			rolePicker($('nuRoles'), state.roles, keep.length ? keep : ['user']);
+		}, function (e) {
+			if (epoch !== state.epoch) return;
+			showFormError('usersError', adminError(e));
+		}).then(function () { btn.classList.remove('busy'); });
+	}
+
+	function formatCreated(text) {
+		if (!text) return '';
+		var d = new Date(text.replace(' ', 'T'));
+		return isNaN(d) ? text : d.toLocaleString([], { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+	}
+
+	function renderUsers() {
+		var box = $('usersList');
+		box.textContent = '';
+		var users = state.users;
+		$('usersCount').textContent = plural(users.length, 'user');
+		if (users.length === 0) {
+			box.appendChild(el('div', { class: 'queries-empty', text: 'No users.' }));
+			return;
+		}
+		var head = el('tr');
+		[['User', ''], ['Roles', 'w-role'], ['Database files', ''], ['Created', 'w-created'], ['', 'w-action']].forEach(function (c) {
+			var th = el('th', { text: c[0] });
+			if (c[1]) th.className = c[1];
+			if (!c[0]) th.setAttribute('aria-label', 'Actions');
+			head.appendChild(th);
+		});
+		var me = state.session ? state.session.username : null;
+		var tbody = el('tbody');
+		users.forEach(function (u) {
+			var tr = el('tr');
+			var name = el('td', { class: 'u-name', text: u.username });
+			if (u.username === me) name.appendChild(el('span', { class: 'q-tag', text: 'you' }));
+			tr.appendChild(name);
+			var roles = el('td', { class: 'u-roles' });
+			if (u.roles && u.roles.length) u.roles.forEach(function (r) { roles.appendChild(roleTag(r)); });
+			else roles.appendChild(el('span', { class: 'help', text: 'none' }));
+			tr.appendChild(roles);
+			var isAdmin = u.roles && u.roles.indexOf('admin') >= 0;
+			var files = u.databases && u.databases.length ? u.databases.join(', ') : (isAdmin ? 'metadata database' : '—');
+			tr.appendChild(el('td', { class: 'u-files', text: files, title: files }));
+			tr.appendChild(el('td', { text: formatCreated(u.created_at) }));
+			var actions = el('td', { class: 'u-action' });
+			var edit = el('button', { type: 'button', class: 'btn small', 'aria-label': 'Change the roles of ' + u.username }, [icon('i-shield'), document.createTextNode('Roles')]);
+			edit.addEventListener('click', function () { openUserRoles(u); });
+			actions.appendChild(edit);
+			// the built-in admin user cannot be deleted: no button at all
+			if (!u['protected']) {
+				var del = el('button', { type: 'button', class: 'btn small danger-outline', 'aria-label': 'Delete ' + u.username }, [icon('i-trash'), document.createTextNode('Delete')]);
+				if (u.username === me) {
+					del.disabled = true;
+					del.title = 'You cannot delete your own account';
+				}
+				del.addEventListener('click', function () { openDeleteUser(u); });
+				actions.appendChild(del);
+			}
+			tr.appendChild(actions);
+			tbody.appendChild(tr);
+		});
+		box.appendChild(el('table', { class: 'grid users' }, [el('thead', {}, [head]), tbody]));
+	}
+
+	$('adminUsers').addEventListener('click', function () {
+		closeAdminMenu();
+		$('newUserForm').reset();
+		rolePicker($('nuRoles'), [], []);
+		showFormError('usersError', '');
+		showNotice('usersNotice', '');
+		$('usersList').textContent = '';
+		$('usersList').appendChild(el('div', { class: 'queries-empty', text: 'Loading…' }));
+		usersDialog.showModal();
+		$('nuName').focus();
+		loadUsers();
+	});
+	$('usersRefresh').addEventListener('click', loadUsers);
+	$('usersClose').addEventListener('click', function () { usersDialog.close(); });
+
+	$('newUserForm').addEventListener('submit', function (event) {
+		event.preventDefault();
+		showFormError('usersError', '');
+		showNotice('usersNotice', '');
+		var body = { username: $('nuName').value.trim(), password: $('nuPass').value, roles: pickedRoles($('nuRoles')) };
+		if (!body.username || !body.password) {
+			showFormError('usersError', 'Type a user name and a password.');
+			(body.username ? $('nuPass') : $('nuName')).focus();
+			return;
+		}
+		if (body.roles.length === 0) {
+			showFormError('usersError', 'Choose at least one role.');
+			return;
+		}
+		var btn = $('nuCreate');
+		btn.disabled = true;
+		api('/management/users', { method: 'POST', body: body }).then(function (created) {
+			$('newUserForm').reset();
+			rolePicker($('nuRoles'), state.roles, ['user']);
+			showNotice('usersNotice', 'User "' + created.username + '" created with ' + (created.roles.length === 1 ? 'role ' : 'roles ') + created.roles.join(', ') + '.');
+			$('nuName').focus();
+			return loadUsers();
+		}, function (e) {
+			showFormError('usersError', adminError(e));
+		}).then(function () { btn.disabled = false; });
+	});
+
+	function openUserRoles(u) {
+		editingUser = u;
+		showFormError('userRolesError', '');
+		$('userRolesTitle').textContent = 'Roles of ' + u.username;
+		var me = state.session ? state.session.username : null;
+		var locked = {};
+		var note = '';
+		if (u['protected']) {
+			locked.admin = 'The built-in admin user always keeps the role admin';
+			note = 'This is the built-in admin user: it always keeps the role admin.';
+		} else if (u.username === me && u.roles.indexOf('admin') >= 0) {
+			locked.admin = 'You cannot remove the role admin from your own account';
+			note = 'You cannot remove the role admin from your own account.';
+		}
+		$('userRolesNote').textContent = note;
+		$('userRolesNote').hidden = !note;
+		rolePicker($('urRoles'), state.roles, u.roles || [], locked, true);
+		$('userRolesSave').disabled = false;
+		userRolesDialog.showModal();
+		var first = $('urRoles').querySelector('input:not(:disabled)');
+		if (first) first.focus();
+	}
+
+	$('userRolesCancel').addEventListener('click', function () { userRolesDialog.close(); });
+	$('userRolesForm').addEventListener('submit', function (event) {
+		event.preventDefault();
+		if (!editingUser) return;
+		var roles = pickedRoles($('urRoles'));
+		if (roles.length === 0) {
+			showFormError('userRolesError', 'A user needs at least one role.');
+			return;
+		}
+		var save = $('userRolesSave');
+		save.disabled = true;
+		var name = editingUser.username;
+		api('/management/users/' + encodeURIComponent(name) + '/roles', { method: 'PUT', body: { roles: roles } }).then(function (done) {
+			userRolesDialog.close();
+			showFormError('usersError', '');
+			showNotice('usersNotice', 'Roles of "' + name + '": ' + done.roles.join(', ') + '.');
+			return loadUsers();
+		}, function (e) {
+			showFormError('userRolesError', adminError(e));
+			save.disabled = false;
+		});
+	});
+
+	function openDeleteUser(u) {
+		deletingUser = u;
+		showFormError('deleteUserError', '');
+		$('deleteUserTitle').textContent = 'Delete ' + u.username;
+		var files = u.databases || [];
+		$('deleteUserText').textContent = 'Delete the user "' + u.username + '"? Its roles and S3 storages are removed' +
+			(files.length ? ' and these database files are deleted from the data folder. This cannot be undone:' : '. This cannot be undone.');
+		var list = $('deleteUserFiles');
+		list.textContent = '';
+		files.forEach(function (f) { list.appendChild(el('li', { text: f })); });
+		$('deleteUserConfirm').disabled = false;
+		deleteUserDialog.showModal();
+		$('deleteUserCancel').focus();
+	}
+
+	$('deleteUserCancel').addEventListener('click', function () { deleteUserDialog.close(); });
+	$('deleteUserForm').addEventListener('submit', function (event) {
+		event.preventDefault();
+		if (!deletingUser) return;
+		var confirm = $('deleteUserConfirm');
+		confirm.disabled = true;
+		var name = deletingUser.username;
+		api('/management/users/' + encodeURIComponent(name), { method: 'DELETE' }).then(function (done) {
+			deleteUserDialog.close();
+			var removed = done && done.removedFiles ? done.removedFiles : [];
+			showFormError('usersError', '');
+			showNotice('usersNotice', 'User "' + name + '" deleted' + (removed.length ? ', removed ' + removed.join(', ') + '.' : '.'));
+			return loadUsers();
+		}, function (e) {
+			showFormError('deleteUserError', adminError(e));
+			confirm.disabled = false;
+		});
+	});
+
+	// ----- roles -----
+
+	var rolesDialog = $('rolesDialog');
+	var deleteRoleDialog = $('deleteRoleDialog');
+	var editingRole = null;     // role being changed in the form, or null when creating
+	var deletingRole = null;
+
+	function loadRoles() {
+		var btn = $('rolesRefresh');
+		var epoch = state.epoch;
+		btn.classList.add('busy');
+		return loadRoleList().then(function () {
+			if (epoch !== state.epoch) return;
+			renderRoles();
+		}, function (e) {
+			if (epoch !== state.epoch) return;
+			showFormError('rolesError', adminError(e));
+		}).then(function () { btn.classList.remove('busy'); });
+	}
+
+	function renderRoles() {
+		var box = $('rolesList');
+		box.textContent = '';
+		var roles = state.roles;
+		$('rolesCount').textContent = plural(roles.length, 'role');
+		if (roles.length === 0) {
+			box.appendChild(el('div', { class: 'queries-empty', text: 'No roles.' }));
+			return;
+		}
+		var head = el('tr');
+		[['Role', 'w-name'], ['Description', ''], ['Users', 'w-users'], ['', 'w-action']].forEach(function (c) {
+			var th = el('th', { text: c[0] });
+			if (c[1]) th.className = c[1];
+			if (!c[0]) th.setAttribute('aria-label', 'Actions');
+			head.appendChild(th);
+		});
+		var tbody = el('tbody');
+		roles.forEach(function (r) {
+			var tr = el('tr', { class: editingRole && editingRole.name === r.name ? 'is-editing' : '' });
+			var name = el('td', { class: 'r-name' }, [roleTag(r.name)]);
+			if (r.builtIn) name.appendChild(el('span', { class: 'q-tag', text: 'built-in' }));
+			tr.appendChild(name);
+			tr.appendChild(el('td', { class: 'r-desc', text: r.description || '' }));
+			tr.appendChild(el('td', { class: 'r-users', text: String(r.users) }));
+			var actions = el('td', { class: 'r-action' });
+			var edit = el('button', { type: 'button', class: 'btn small', 'aria-label': 'Change ' + r.name }, [icon('i-edit'), document.createTextNode('Edit')]);
+			edit.addEventListener('click', function () { editRole(r); });
+			actions.appendChild(edit);
+			if (!r.builtIn) {
+				var del = el('button', { type: 'button', class: 'btn small danger-outline', 'aria-label': 'Delete ' + r.name }, [icon('i-trash'), document.createTextNode('Delete')]);
+				del.addEventListener('click', function () { openDeleteRole(r); });
+				actions.appendChild(del);
+			}
+			tr.appendChild(actions);
+			tbody.appendChild(tr);
+		});
+		box.appendChild(el('table', { class: 'grid roles' }, [el('thead', {}, [head]), tbody]));
+	}
+
+	function editRole(r) {
+		editingRole = r;
+		showFormError('rolesError', '');
+		showNotice('rolesNotice', '');
+		$('roName').value = r ? r.name : '';
+		$('roName').disabled = !!(r && r.builtIn);
+		$('roDesc').value = r ? r.description || '' : '';
+		$('roSave').lastChild.textContent = r ? 'Save changes' : 'Create role';
+		$('roSave').firstChild.querySelector('use').setAttribute('href', r ? '#i-edit' : '#i-plus');
+		$('roCancelEdit').hidden = !r;
+		$('roHelp').textContent = !r ? "Letters, digits, '_', '-' and '.', up to 64 characters."
+			: r.builtIn ? 'Built-in role: only its description can change.'
+			: 'Renaming keeps the role on the ' + plural(r.users, 'user') + ' that have it.';
+		renderRoles();
+		(r && r.builtIn ? $('roDesc') : $('roName')).focus();
+	}
+
+	$('adminRoles').addEventListener('click', function () {
+		closeAdminMenu();
+		editingRole = null;
+		$('roleForm').reset();
+		showFormError('rolesError', '');
+		showNotice('rolesNotice', '');
+		editRole(null);
+		$('rolesList').textContent = '';
+		$('rolesList').appendChild(el('div', { class: 'queries-empty', text: 'Loading…' }));
+		rolesDialog.showModal();
+		$('roName').focus();
+		loadRoles();
+	});
+	$('rolesRefresh').addEventListener('click', loadRoles);
+	$('rolesClose').addEventListener('click', function () { rolesDialog.close(); });
+	$('roCancelEdit').addEventListener('click', function () { editRole(null); });
+
+	$('roleForm').addEventListener('submit', function (event) {
+		event.preventDefault();
+		showFormError('rolesError', '');
+		showNotice('rolesNotice', '');
+		var body = { name: $('roName').value.trim(), description: $('roDesc').value.trim() };
+		if (!body.name) {
+			showFormError('rolesError', 'Type a name for the role.');
+			$('roName').focus();
+			return;
+		}
+		var was = editingRole;
+		var btn = $('roSave');
+		btn.disabled = true;
+		var request = was
+			? api('/management/roles/' + encodeURIComponent(was.name), { method: 'PUT', body: body })
+			: api('/management/roles', { method: 'POST', body: body });
+		request.then(function (saved) {
+			var message = !was ? 'Role "' + saved.name + '" created.'
+				: was.name !== saved.name ? 'Role "' + was.name + '" renamed to "' + saved.name + '".'
+				: 'Role "' + saved.name + '" saved.';
+			editRole(null);
+			$('roleForm').reset();
+			showNotice('rolesNotice', message);
+			return loadRoles();
+		}, function (e) {
+			showFormError('rolesError', adminError(e));
+		}).then(function () { btn.disabled = false; });
+	});
+
+	function openDeleteRole(r) {
+		deletingRole = r;
+		showFormError('deleteRoleError', '');
+		$('deleteRoleTitle').textContent = 'Delete ' + r.name;
+		$('deleteRoleText').textContent = 'Delete the role "' + r.name + '"?' +
+			(r.users ? ' It is removed from the ' + plural(r.users, 'user') + ' that have it.' : ' No user has it.');
+		$('deleteRoleConfirm').disabled = false;
+		deleteRoleDialog.showModal();
+		$('deleteRoleCancel').focus();
+	}
+
+	$('deleteRoleCancel').addEventListener('click', function () { deleteRoleDialog.close(); });
+	$('deleteRoleForm').addEventListener('submit', function (event) {
+		event.preventDefault();
+		if (!deletingRole) return;
+		var confirm = $('deleteRoleConfirm');
+		confirm.disabled = true;
+		var name = deletingRole.name;
+		api('/management/roles/' + encodeURIComponent(name), { method: 'DELETE' }).then(function () {
+			deleteRoleDialog.close();
+			if (editingRole && editingRole.name === name) editRole(null);
+			showFormError('rolesError', '');
+			showNotice('rolesNotice', 'Role "' + name + '" deleted.');
+			return loadRoles();
+		}, function (e) {
+			showFormError('deleteRoleError', adminError(e));
+			confirm.disabled = false;
+		});
+	});
+
+	[usersDialog, deleteUserDialog, userRolesDialog, rolesDialog, deleteRoleDialog].forEach(function (d) {
+		d.addEventListener('mousedown', function (event) { if (event.target === d) d.close(); });
 	});
 
 	// ---------- resizing ----------
