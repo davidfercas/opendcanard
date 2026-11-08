@@ -1,81 +1,85 @@
 package io.opencanard.auth;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
-import java.sql.SQLException;
 import java.util.Base64;
-import java.util.HashMap;
 
 import org.apache.arrow.flight.CallHeaders;
-import org.apache.arrow.flight.CallStatus; // Add this import
+import org.apache.arrow.flight.CallStatus;
+import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.auth2.CallHeaderAuthenticator;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.duckdb.DuckDBConnection;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import io.opencanard.user.User;
 import io.opencanard.user.UserRepository;
 
+/**
+ * Checks {@code Authorization: Basic} credentials of an Arrow Flight call against {@code opencanard_users}
+ * (BCrypt). It sits behind {@link FlightAuthenticator}, which handles the Bearer tokens; any header it cannot
+ * check is refused with {@code UNAUTHENTICATED}, never with an internal error.
+ */
 public class OpenCanardAuthenticator implements CallHeaderAuthenticator {
 
+	private static final Logger logger = LogManager.getLogger(OpenCanardAuthenticator.class);
 
+	private static final String BASIC = "Basic ";
+	private static final BCryptPasswordEncoder ENCODER = new BCryptPasswordEncoder();
 
-	private static final CallStatus UNAUTHENTICATED =
-		    CallStatus.UNAUTHENTICATED.withDescription("Login failure: Wrong user/password");
-	private static final CallStatus AUTHENTICATIONERROR =
-		    CallStatus.UNAUTHENTICATED.withDescription("Internal error during login");
-	
-	private Connection conn;
-	
+	private final Connection metadatadb;
+
 	public OpenCanardAuthenticator(Connection metadatadb) {
-		super();
-		this.conn = metadatadb;
+		this.metadatadb = metadatadb;
 	}
 
 	@Override
 	public AuthResult authenticate(CallHeaders headers) {
 		String authHeader = headers.get("Authorization");
-
 		if (authHeader == null) {
-			throw CallStatus.UNAUTHENTICATED.withDescription("No Authorization header provided").toRuntimeException();
+			throw unauthenticated("No Authorization header provided");
+		}
+		if (authHeader.startsWith("Bearer ")) {
+			// Issued tokens and JWTs are recognised by FlightAuthenticator before this class is asked
+			throw unauthenticated("Unknown or expired bearer token, sign in again");
+		}
+		if (!authHeader.startsWith(BASIC)) {
+			throw unauthenticated("Unsupported authorization scheme, use Basic or Bearer");
 		}
 
-		// Logic for both Token and User/Pass
-		if (authHeader.startsWith("Basic ")) {
-
-			String base64Credentials = authHeader.substring(6);
-			String credentials = new String(Base64.getDecoder().decode(base64Credentials));
-			String[] values = credentials.split(":", 2);
-			String username = values[0];
-			String password = values[1];
-
-			try {
-				return validateBasic(username, password);
-			} catch (Exception e) {
-				throw CallStatus.UNAUTHENTICATED.withDescription(e.getMessage()).toRuntimeException();
+		String username;
+		String password;
+		try {
+			String credentials = new String(Base64.getDecoder().decode(authHeader.substring(BASIC.length()).trim()),
+					StandardCharsets.UTF_8);
+			int colon = credentials.indexOf(':');
+			if (colon < 0) {
+				throw unauthenticated("Malformed Basic credentials");
 			}
-		} else if (authHeader.startsWith("Bearer ")) {
-			// Valid bearer tokens are the ones the server issued after a Basic login; GeneratedBearerTokenAuthenticator
-			// (see OpenCanardServer) recognises them before this class is asked. Anything else reaching here is
-			// unknown or expired.
-			throw CallStatus.UNAUTHENTICATED.withDescription("Unknown or expired bearer token, sign in again")
-					.toRuntimeException();
+			username = credentials.substring(0, colon);
+			password = credentials.substring(colon + 1);
+		} catch (IllegalArgumentException e) {
+			throw unauthenticated("Malformed Basic credentials");
 		}
 
-		throw CallStatus.UNAUTHENTICATED.withDescription("Invalid Scheme").toRuntimeException();
+		User user;
+		try (Connection c = ((DuckDBConnection) metadatadb).duplicate()) {
+			user = new UserRepository().getUser(c, username);
+		} catch (FlightRuntimeException e) {
+			throw e;
+		} catch (Exception e) {
+			logger.error("[flight-auth] cannot look up user '{}'", username, e);
+			throw unauthenticated("Internal error during login");
+		}
+		// same answer for an unknown user and a wrong password
+		if (user == null || password.isEmpty() || !ENCODER.matches(password, user.getPasswordHash())) {
+			throw unauthenticated("Login failure: Wrong user/password");
+		}
+		return () -> username;
 	}
 
-	private AuthResult validateBasic(String username, String password) throws Exception {
-		// Decode and verify credentials...
-		BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
-
-		UserRepository userRepository = new UserRepository();
-		
-		User user = userRepository.getUser(this.conn, username);
-			if (user == null || password == null) {
-				throw UNAUTHENTICATED.toRuntimeException();
-			}
-			if (encoder.matches(password, user.getPasswordHash())) {
-				return () -> username;
-			}
-			throw UNAUTHENTICATED.toRuntimeException();
-		
+	private static FlightRuntimeException unauthenticated(String message) {
+		return CallStatus.UNAUTHENTICATED.withDescription(message).toRuntimeException();
 	}
 }

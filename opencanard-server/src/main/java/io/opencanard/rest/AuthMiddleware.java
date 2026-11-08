@@ -55,14 +55,10 @@ public class AuthMiddleware implements Handler {
 
 		} else if (authHeader.startsWith("Bearer ")) {
 			try {
-				String token = authHeader.substring(7);
-				var verifier = com.auth0.jwt.JWT
-						.require(com.auth0.jwt.algorithms.Algorithm.HMAC256(OpenCanardApiController.JWT_SECRET))
-						.build();
-				var decoded = verifier.verify(token);
+				String login = io.opencanard.auth.JwtTokens.verify(authHeader.substring(7));
 				// The roles come from the users table, not from the token: a user deleted (or whose role changed)
 				// after signing in must not keep the rights the token was issued with.
-				User user = this.controller.findUser(decoded.getClaim("username").asString());
+				User user = this.controller.findUser(login);
 				if (user == null) {
 					throw new UnauthorizedResponse("The user of this token no longer exists");
 				}

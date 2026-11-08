@@ -8,7 +8,7 @@
 | Area | Current behavior |
 | --- | --- |
 | Flight port (`8815`) — `Basic` credentials | Checked against the users table (bcrypt). |
-| Flight port — `Bearer` token | Issued by the server after a successful `Basic` call; unknown or expired tokens are refused. |
+| Flight port — `Bearer` token | The token issued after a successful `Basic` call, or the JWT of the REST login (signature, issuer, subject and expiry verified). Anything else is refused, and so is any token of a user that no longer exists. |
 | Flight port — transport | **Plaintext gRPC.** No TLS. |
 | REST API (`8084`) | Login returns a signed JWT; `/management/*` requires credentials or a JWT. Plain HTTP. |
 | JWT signing secret | **Hard-coded** in the source. |
@@ -135,18 +135,24 @@ first call and kept open until the server stops.
 
 ## Arrow Flight port
 
-Every Flight call must carry an `Authorization` header. Two schemes are recognized:
+Every Flight call must carry an `Authorization` header. Three forms are accepted:
 
-- **`Basic <base64(user:password)>`** — the credentials are checked against the users table.
-  Wrong credentials are rejected with `UNAUTHENTICATED`.
-- **`Bearer <token>`** — a token the server issued. Every call that succeeds with `Basic` credentials gets
+- **`Basic <base64(user:password)>`** — the credentials are checked against the users table (bcrypt).
+- **`Bearer <issued token>`** — every call that succeeds with `Basic` credentials gets
   `Authorization: Bearer <token>` back in its response headers, and the client may send that instead from then
   on. This is how Flight SQL clients (ADBC, the Flight SQL JDBC driver) work: they log in once with `Basic` and
-  continue with the token. Tokens are random, kept in the server's memory only (a restart forgets them) and expire
-  after one hour without use. Any other Bearer value is rejected with `UNAUTHENTICATED`.
+  continue with the token. These tokens are random, kept in the server's memory only (a restart forgets them) and
+  expire after one hour without use.
+- **`Bearer <JWT>`** — the token returned by the REST `POST /api/login`. It must be signed with the server's key
+  (HS256), come from issuer `opencanard`, name the user in `sub` and carry an `exp` that has not passed. The call
+  runs as the user in `sub`.
 
-The REST API's JWTs are not accepted on the Flight port. The same port serves both Arrow Flight SQL and
-OpenCanard's own protocol (see [clients](clients.md)); authentication is the same for both.
+Everything else is rejected with `UNAUTHENTICATED`: no header, another scheme, malformed `Basic` credentials, a
+wrong password or unknown user (same message for both), an unknown random token, and a JWT that is forged,
+unsigned (`alg: none`), malformed, expired, without `exp` or `sub`, or from another issuer. Whatever the form, the
+user must still exist when the call is made: deleting a user ends its access at once, including through tokens
+issued earlier. The same port serves both Arrow Flight SQL and OpenCanard's own protocol (see
+[clients](clients.md)); authentication is the same for both.
 
 Once authenticated, there is no per-user or per-role authorization on the Flight port: every user can
 run any SQL statement the DuckDB connection allows, including statements that modify data.
@@ -164,10 +170,11 @@ REST API, or a VPN / private network for the Flight port).
 
 See [REST API](rest-api.md) for the endpoints. In short:
 
-- `POST /api/login` exchanges a username and password for a JWT (HS256, valid for one hour, carrying the
-  `username` and `roles` claims).
-- Everything under `/management/*` requires either `Authorization: Basic ...` or
-  `Authorization: Bearer <JWT>`. These JWTs **are** verified, unlike the Flight bearer tokens.
+- `POST /api/login` exchanges a username and password for a JWT (HS256, valid for one hour; claims `iss`
+  = `opencanard`, `sub` = the login, `iat`, `exp`, plus `username` and `roles` for clients that read them). The
+  server only trusts `sub` and reads the roles from the database on every call.
+- Everything under `/management/*` and `/api/*` requires either `Authorization: Basic ...` or
+  `Authorization: Bearer <JWT>`. The same JWT also works on the Flight port.
 - The JWT secret is a constant in the source code (`your-super-secret-key-change-this`). Anyone who
   knows it can forge a token with the `admin` role. Rebuild with your own secret if you must run a
   build from this version outside a trusted network.

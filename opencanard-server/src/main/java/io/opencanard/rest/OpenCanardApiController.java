@@ -28,7 +28,6 @@ public class OpenCanardApiController {
 	private final UserService userService;
 	
 	// Shared with AuthMiddleware, which verifies the tokens issued by handleLogin
-	static final String JWT_SECRET = "your-super-secret-key-change-this";
 	
 	public OpenCanardApiController(Connection duckdb, Connection metadatadb, UserService userService) {
 		super();
@@ -187,11 +186,7 @@ public class OpenCanardApiController {
        
         if (user != null) {
             // Generate the token
-            String token = com.auth0.jwt.JWT.create()
-                .withClaim("username", user.getUsername())
-                .withArrayClaim("roles", user.getRoles().toArray(new String[0]))
-                .withExpiresAt(new java.util.Date(System.currentTimeMillis() + 3600000)) // 1 hour
-                .sign(com.auth0.jwt.algorithms.Algorithm.HMAC256(JWT_SECRET));
+            String token = io.opencanard.auth.JwtTokens.issue(user);
             ctx.json(Map.of("token", token));
         } else {
             throw new io.javalin.http.UnauthorizedResponse("Invalid Credentials");

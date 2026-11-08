@@ -34,7 +34,6 @@ import org.apache.arrow.flight.PutResult;
 import org.apache.arrow.flight.Result;
 import org.apache.arrow.flight.SchemaResult;
 import org.apache.arrow.flight.Ticket;
-import org.apache.arrow.flight.auth2.GeneratedBearerTokenAuthenticator;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.types.pojo.Schema;
@@ -42,11 +41,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
-import com.google.common.cache.CacheBuilder;
 
 import io.opencanard.flightsql.FlightSqlCommands;
 import io.opencanard.flightsql.OpenCanardFlightSqlProducer;
-import io.opencanard.auth.OpenCanardAuthenticator;
+import io.opencanard.auth.FlightAuthenticator;
 import io.opencanard.conf.Config;
 import io.opencanard.rest.RestApiServer;
 import io.opencanard.user.DatabaseRegistry;
@@ -192,14 +190,10 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		// Build server
 		this.allocator = allocator;
 	//	this.server = FlightServer.builder(this.allocator, location, this).middleware(FlightServerMiddleware.Key.of("auth"),new AuthMiddlewareFactory("mysecret123")).build();
-		// Basic credentials are checked against opencanard_users. Every successful Basic call is answered with a
-		// Bearer token (Authorization response header) that the client may send instead from then on: Flight SQL
-		// clients (ADBC, the Flight SQL JDBC driver) log in once with Basic and continue with the token. Tokens
-		// live in memory and expire after an hour without use; OpenCanard's own clients keep sending Basic.
+		// Basic credentials (checked against opencanard_users), the Bearer token handed out after a Basic call, or
+		// the JWT of the REST login; anything else is UNAUTHENTICATED. See FlightAuthenticator.
 		this.server = FlightServer.builder(this.allocator, location, this)
-				.headerAuthenticator(new GeneratedBearerTokenAuthenticator(new OpenCanardAuthenticator(this.metadatadb),
-						CacheBuilder.newBuilder().expireAfterAccess(60, java.util.concurrent.TimeUnit.MINUTES)
-								.maximumSize(100_000)))
+				.headerAuthenticator(new FlightAuthenticator(this.metadatadb))
 				.build();
 		//this.server = FlightServer.builder(this.allocator, location, this).headerAuthenticator(CallHeaderAuthenticator.NO_OP).build(); 
 		

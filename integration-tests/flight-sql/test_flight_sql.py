@@ -183,3 +183,129 @@ def test_made_up_bearer_token_is_refused():
     options = flight.FlightCallOptions(headers=[(b"authorization", b"Bearer not-a-real-token")])
     with pytest.raises(flight.FlightUnauthenticatedError):
         client.get_flight_info(flight.FlightDescriptor.for_command(b"SELECT 1"), options)
+
+
+# ---------- authentication on the Flight port (issue #11) ----------
+
+import hashlib
+import hmac
+import json
+import time
+import urllib.request
+
+REST = os.environ.get("OC_REST_URI", "http://localhost:8084")
+# The signing key is still compiled into the server (issue #12); the tests sign their own tokens with it
+JWT_SECRET = os.environ.get("OC_JWT_SECRET", "your-super-secret-key-change-this")
+
+
+def b64url(data):
+    if isinstance(data, (dict, list)):
+        data = json.dumps(data, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def make_jwt(claims, secret=JWT_SECRET, alg="HS256"):
+    head = b64url({"alg": alg, "typ": "JWT"}) + "." + b64url(claims)
+    if alg == "none":
+        return head + "."
+    signature = hmac.new(secret.encode(), head.encode(), hashlib.sha256).digest()
+    return head + "." + b64url(signature)
+
+
+def claims(sub, **extra):
+    now = int(time.time())
+    base = {"iss": "opencanard", "sub": sub, "iat": now, "exp": now + 600}
+    base.update(extra)
+    return {k: v for k, v in base.items() if v is not None}
+
+
+def rest(method, path, body=None, auth=None, token=None):
+    request = urllib.request.Request(REST + path, method=method,
+                                     data=json.dumps(body).encode() if body is not None else None)
+    request.add_header("Content-Type", "application/json")
+    if auth:
+        request.add_header("Authorization", "Basic " + base64.b64encode(f"{auth[0]}:{auth[1]}".encode()).decode())
+    if token:
+        request.add_header("Authorization", "Bearer " + token)
+    with urllib.request.urlopen(request) as response:
+        text = response.read()
+        return json.loads(text) if text else None
+
+
+def rest_login(user):
+    return rest("POST", "/api/login", {"username": user[0], "password": user[1]})["token"]
+
+
+def with_header(value):
+    return flight.FlightCallOptions(headers=[(b"authorization", value.encode())]) if value is not None else None
+
+
+def run(options, sql=b"SELECT 1 AS one"):
+    client = flight.FlightClient(URI)
+    info = client.get_flight_info(flight.FlightDescriptor.for_command(sql), options)
+    return client.do_get(info.endpoints[0].ticket, options).read_all()
+
+
+def refused(options):
+    with pytest.raises(flight.FlightUnauthenticatedError):
+        run(options)
+
+
+def test_no_authorization_header_is_refused():
+    refused(None)
+
+
+def test_unsupported_scheme_is_refused():
+    refused(with_header("Digest username=alice"))
+
+
+@pytest.mark.parametrize("value", ["Basic !!!not-base64!!!", "Basic " + base64.b64encode(b"no-colon").decode(), "Basic "])
+def test_malformed_basic_is_refused_not_an_internal_error(value):
+    refused(with_header(value))
+
+
+def test_wrong_password_and_unknown_user_are_refused_on_the_raw_port():
+    refused(basic(("alice", "wrong")))
+    refused(basic(("nobody", "whatever")))
+
+
+def test_jwt_from_the_rest_login_works_on_the_flight_port(alice):
+    token = rest_login(ALICE)
+    table = run(with_header("Bearer " + token), b"SELECT COUNT(*) AS n FROM fruit")
+    assert table.column("n").to_pylist()[0] >= 0  # fruit only exists in alice's database
+
+
+def test_jwt_identity_is_the_subject():
+    # a valid token for bob must reach bob's database, not alice's (which has the table fruit)
+    with pytest.raises(flight.FlightError):
+        run(with_header("Bearer " + make_jwt(claims("bob"))), b"SELECT * FROM fruit")
+    assert run(with_header("Bearer " + make_jwt(claims("bob"))), b"SELECT 5 AS five").column("five").to_pylist() == [5]
+
+
+@pytest.mark.parametrize("token", [
+    make_jwt(claims("alice"), secret="some-other-key"),                     # forged: wrong key
+    make_jwt(claims("alice"), alg="none"),                                  # unsigned
+    make_jwt(claims("alice", exp=int(time.time()) - 60)),                   # expired
+    make_jwt(claims("alice", exp=None)),                                    # no expiry
+    make_jwt(claims("alice", iss="someone-else")),                          # other issuer
+    make_jwt(claims(None, username="alice")),                               # no subject
+    make_jwt(claims("nobody")),                                             # user does not exist
+    "aaa.bbb.ccc",                                                          # malformed
+], ids=["forged", "unsigned", "expired", "no-exp", "other-issuer", "no-subject", "unknown-user", "malformed"])
+def test_bad_jwts_are_refused(token):
+    refused(with_header("Bearer " + token))
+
+
+def test_tokens_of_a_deleted_user_stop_working():
+    temp = ("tempflight", "temp-pw")
+    rest("POST", "/management/users", {"username": temp[0], "password": temp[1]}, auth=ADMIN)
+    try:
+        jwt = rest_login(temp)
+        issued = flight.FlightClient(URI).authenticate_basic_token(*temp)
+        assert run(with_header("Bearer " + jwt)).num_rows == 1
+        assert run(flight.FlightCallOptions(headers=[issued])).num_rows == 1
+    finally:
+        rest("DELETE", "/management/users/" + temp[0], auth=ADMIN)
+    refused(with_header("Bearer " + jwt))
+    refused(flight.FlightCallOptions(headers=[issued]))
+    refused(basic(temp))
