@@ -1,0 +1,3 @@
+adbc-driver-flightsql
+adbc-driver-manager
+pyarrow
