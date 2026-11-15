@@ -12,7 +12,7 @@
 | Flight port — transport | **Plaintext gRPC.** No TLS. |
 | REST API (`8084`) | Login returns a signed JWT; `/management/*` requires credentials or a JWT. Plain HTTP. |
 | JWT signing secret | **Hard-coded** in the source. |
-| Query restrictions | **None.** SQL from clients runs as-is on a read-write DuckDB connection. |
+| Query restrictions | Users with the privilege [`READ_ONLY`](#privileges) get a read-only database. Everyone else runs SQL as-is on a read-write DuckDB connection; there is no sandbox (#13). |
 
 Until the gaps below are fixed, run OpenCanard only on a trusted network (loopback, a private network,
 or behind a reverse proxy / VPN that provides TLS and access control), and do not rely on it to keep
@@ -222,5 +222,6 @@ These are tracked here so they are not mistaken for features:
 2. No TLS on either port; the `tls.*` properties are ignored.
 3. The JWT signing secret is hard-coded.
 4. `POST /management/shutdown` only requires an authenticated user, not the `admin` role.
-5. No read-only enforcement: clients can send `INSERT`, `UPDATE`, `DROP` and other statements.
+5. Read-only is opt-in: only users with the privilege [`READ_ONLY`](#privileges) are limited, and even they can still
+   write files with `COPY ... TO` and DuckDB keeps its access to the file system and the network (#13).
 6. Only the first admin is created automatically; further users must be added by hand in the metadata database.
