@@ -195,8 +195,8 @@ import urllib.request
 import urllib.error
 
 REST = os.environ.get("OC_REST_URI", "http://localhost:8084")
-# The signing key is still compiled into the server (issue #12); the tests sign their own tokens with it
-JWT_SECRET = os.environ.get("OC_JWT_SECRET", "your-super-secret-key-change-this")
+# The tests sign their own tokens with the server's key: run.sh passes the content of metadata/jwt.key
+JWT_SECRET = os.environ["OC_JWT_SECRET"]
 
 
 def b64url(data):

@@ -11,8 +11,8 @@
 | Flight port — `Bearer` token | The token issued after a successful `Basic` call, or the JWT of the REST login (signature, issuer, subject and expiry verified). Anything else is refused, and so is any token of a user that no longer exists. |
 | Flight port — transport | **Plaintext gRPC.** No TLS. |
 | REST API (`8084`) | Login returns a signed JWT; `/management/*` requires credentials or a JWT. Plain HTTP. |
-| JWT signing secret | **Hard-coded** in the source. |
 | Query restrictions | Users with the privilege [`READ_ONLY`](#privileges) get a read-only database. Everyone else runs SQL as-is on a read-write DuckDB connection; there is no sandbox (#13). |
+| JWT signing secret | Random per installation (`metadata/jwt.key`), or set with `OPENCANARD_JWT_SECRET` / `jwt.secret`. See [JWT signing key](#jwt-signing-key). |
 
 Until the gaps below are fixed, run OpenCanard only on a trusted network (loopback, a private network,
 or behind a reverse proxy / VPN that provides TLS and access control), and do not rely on it to keep
@@ -205,14 +205,29 @@ REST API, or a VPN / private network for the Flight port).
 
 See [REST API](rest-api.md) for the endpoints. In short:
 
-- `POST /api/login` exchanges a username and password for a JWT (HS256, valid for one hour; claims `iss`
+- `POST /api/login` exchanges a username and password for a JWT (HS256, valid for `jwt.expiry.minutes`, one hour by default; claims `iss`
   = `opencanard`, `sub` = the login, `iat`, `exp`, plus `username` and `roles` for clients that read them). The
   server only trusts `sub` and reads the roles from the database on every call.
 - Everything under `/management/*` and `/api/*` requires either `Authorization: Basic ...` or
   `Authorization: Bearer <JWT>`. The same JWT also works on the Flight port.
-- The JWT secret is a constant in the source code (`your-super-secret-key-change-this`). Anyone who
-  knows it can forge a token with the `admin` role. Rebuild with your own secret if you must run a
-  build from this version outside a trusted network.
+- The tokens are signed with the installation's own key, see below.
+
+## JWT signing key
+
+The key that signs and verifies the JWTs is the first of these that exists:
+
+1. the environment variable `OPENCANARD_JWT_SECRET`;
+2. the property `jwt.secret` in `opencanard.properties`;
+3. the file `metadata/jwt.key`, created with 256 random bits and owner-only permissions on the first start.
+
+A configured secret must be at least 32 bytes long, or the server refuses to start. Anyone who has the key can
+forge a token for any user, including an admin, so keep it as private as the metadata database. Keeping it in
+`metadata/` lets tokens survive restarts (in Docker that directory is a volume); for a stronger separation, set
+the environment variable from a secret manager.
+
+Changing the key (or deleting `metadata/jwt.key`) signs everybody out: every token issued before is refused,
+and web console users have to sign in again. When several servers must accept each other's tokens, give them the
+same `OPENCANARD_JWT_SECRET`.
 
 ## Known limitations
 
@@ -220,7 +235,6 @@ These are tracked here so they are not mistaken for features:
 
 1. Flight bearer tokens are kept in memory; they are not shared between servers and do not survive a restart.
 2. No TLS on either port; the `tls.*` properties are ignored.
-3. The JWT signing secret is hard-coded.
 4. `POST /management/shutdown` only requires an authenticated user, not the `admin` role.
 5. Read-only is opt-in: only users with the privilege [`READ_ONLY`](#privileges) are limited, and even they can still
    write files with `COPY ... TO` and DuckDB keeps its access to the file system and the network (#13).

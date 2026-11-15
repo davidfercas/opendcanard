@@ -94,7 +94,30 @@ test -z "$(find "$SERVER" -name admin2.duckdb)"
 expect 401 "$REST/management/roles" -u admin2:admin2-pw
 echo "Users and roles checks passed"
 
+echo "== JWT signing key (#12)"
+test -f "$SERVER/metadata/jwt.key"
+if [ "$(uname)" != "Darwin" ]; then test "$(stat -c %a "$SERVER/metadata/jwt.key")" = 600; fi
+TOKEN="$(curl -sf -X POST "$REST/api/login" "${JSON[@]}" -d '{"username":"admin","password":"admin-pw"}' |
+	python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+expect 200 "$REST/management/users" -H "Authorization: Bearer $TOKEN"
+# a well-formed admin token signed with the secret older versions had in their source must be refused
+FORGED="$(python3 - <<'PY'
+import base64, hashlib, hmac, json, time
+b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+now = int(time.time())
+head = b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+body = b64(json.dumps({"iss": "opencanard", "sub": "admin", "username": "admin", "roles": ["admin"],
+                       "iat": now, "exp": now + 3600}).encode())
+sig = hmac.new(b"your-super-secret-key-change-this", f"{head}.{body}".encode(), hashlib.sha256).digest()
+print(f"{head}.{body}.{b64(sig)}")
+PY
+)"
+expect 401 "$REST/management/users" -H "Authorization: Bearer $FORGED"
+echo "JWT checks passed"
+
 echo "== ADBC (Python)"
+# the Python tests sign their own JWTs with the key the server generated
+export OC_JWT_SECRET="$(cat "$SERVER/metadata/jwt.key")"
 python3 -m pytest -q "$HERE/test_flight_sql.py"
 
 echo "== Apache Arrow Flight SQL JDBC driver"

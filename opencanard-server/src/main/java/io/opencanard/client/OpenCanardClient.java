@@ -43,7 +43,6 @@ public class OpenCanardClient implements AutoCloseable {
         String rawPassword = "admin";
         
         CallOption basicAuth = createBasicAuthOption(username, rawPassword);
-    //    CallOption tokenAuth = createBearerTokenOption("opencanard-secret-token");
         
 
      // 3. Example: Call listFlights using Token
@@ -101,7 +100,7 @@ public class OpenCanardClient implements AutoCloseable {
 
     public static void main(String[] args) throws Exception {
         try (OpenCanardClient client =
-                     new OpenCanardClient("localhost", 8815, "mysecret123")) {
+                     new OpenCanardClient("localhost", 8815, null)) {
 
         //	client.query("SELECT * FROM cities limit 5");
         //	client.query("SELECT count(*) FROM cities");

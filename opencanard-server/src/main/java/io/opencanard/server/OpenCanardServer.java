@@ -190,7 +190,6 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 
 		// Build server
 		this.allocator = allocator;
-	//	this.server = FlightServer.builder(this.allocator, location, this).middleware(FlightServerMiddleware.Key.of("auth"),new AuthMiddlewareFactory("mysecret123")).build();
 		// Basic credentials (checked against opencanard_users), the Bearer token handed out after a Basic call, or
 		// the JWT of the REST login; anything else is UNAUTHENTICATED. See FlightAuthenticator.
 		this.server = FlightServer.builder(this.allocator, location, this)
@@ -214,6 +213,18 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 					Paths.get(METADATA_DIR, "storage.key"), Paths.get(CONF_DIR, "storage.key")));
 		} catch (java.io.IOException e) {
 			throw new IllegalStateException("Cannot read or create the storage key in " + METADATA_DIR, e);
+		}
+		// JWT signing key: OPENCANARD_JWT_SECRET, then jwt.secret, then metadata/jwt.key (created on first start)
+		try {
+			String configuredJwt = System.getenv("OPENCANARD_JWT_SECRET");
+			if (configuredJwt == null || configuredJwt.isBlank()) {
+				configuredJwt = Config.get("jwt.secret");
+			}
+			io.opencanard.auth.JwtTokens.configure(
+					io.opencanard.auth.JwtTokens.loadSecret(configuredJwt, Paths.get(METADATA_DIR, "jwt.key")),
+					Config.getInt("jwt.expiry.minutes", io.opencanard.auth.JwtTokens.DEFAULT_LIFETIME_MINUTES));
+		} catch (java.io.IOException e) {
+			throw new IllegalStateException("Cannot read or create the JWT key in " + METADATA_DIR, e);
 		}
 		this.userConnections = new UserConnections(this.metadatadb, this.userDatabases, storageService);
 		this.flightSql = new OpenCanardFlightSqlProducer(this.userConnections, this.runningQueries, this.allocator,
