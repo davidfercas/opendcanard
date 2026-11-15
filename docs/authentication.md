@@ -12,7 +12,7 @@
 | Flight port — transport | **Plaintext gRPC.** No TLS. |
 | REST API (`8084`) | Login returns a signed JWT; `/management/*` requires credentials or a JWT. Plain HTTP. |
 | JWT signing secret | **Hard-coded** in the source. |
-| Query restrictions | **None.** SQL from clients runs as-is on a read-write DuckDB connection. |
+| Query restrictions | Users with the privilege [`READ_ONLY`](#privileges) get a read-only database. Everyone else runs SQL as-is on a read-write DuckDB connection; there is no sandbox (#13). |
 
 Until the gaps below are fixed, run OpenCanard only on a trusted network (loopback, a private network,
 or behind a reverse proxy / VPN that provides TLS and access control), and do not rely on it to keep
@@ -55,6 +55,40 @@ CREATE TABLE opencanard_user_roles(       -- which roles each user has
 Earlier versions kept one role per user in a `role` column of `opencanard_users`. At the first start of this
 version the server copies every value into `opencanard_user_roles` (adding any role that is not in
 `opencanard_roles`) and drops the column.
+
+### Privileges
+
+Privileges are grants on top of the roles, kept in two more tables of the metadata database:
+
+```sql
+CREATE TABLE opencanard_user_privileges(  -- granted to one user
+    username VARCHAR NOT NULL,
+    privilege VARCHAR NOT NULL,
+    PRIMARY KEY (username, privilege)
+);
+CREATE TABLE opencanard_role_privileges(  -- granted to every user with the role
+    role_name VARCHAR NOT NULL,
+    privilege VARCHAR NOT NULL,
+    PRIMARY KEY (role_name, privilege)
+);
+```
+
+A user has a privilege when it was granted to the user or to one of its roles. Admins grant and revoke them from
+the console (the **Privileges** buttons of **Administration → Users** and **→ Roles**) or the REST API, see
+[Privileges](rest-api.md#privileges). The tables are created at startup if missing. The list of privileges is
+defined by the server (`io.opencanard.user.Privileges`); today it has one:
+
+- **`READ_ONLY`**: the user's database is opened with `access_mode=READ_ONLY`
+  (`jdbc:duckdb:<file>;access_mode=READ_ONLY`), and the server checks in `duckdb_databases()` that DuckDB really
+  opened it read-only before handing out a connection. Every statement that would change the database (`INSERT`,
+  `UPDATE`, `DELETE`, `CREATE`, `DROP`, ...) fails, on the Flight port and in the console alike; databases
+  `ATTACH`ed from that connection are read-only too. Reading files and S3 (`read_parquet`, `COPY ... TO` a local
+  file) is not a database change and is not blocked.
+  - It is read on every new connection, so a grant or a revoke applies from the user's next query. DuckDB fixes the
+    access mode when it opens a file, so the server closes the file and opens it again with the new mode; that
+    succeeds once the user's queries started before the change have finished, and until then a new connection is
+    refused (never handed out with the old mode).
+  - It is **not applied to admins**: they work on the metadata database, which the server keeps open read-write.
 
 ### Creating users
 
@@ -154,8 +188,9 @@ user must still exist when the call is made: deleting a user ends its access at 
 issued earlier. The same port serves both Arrow Flight SQL and OpenCanard's own protocol (see
 [clients](clients.md)); authentication is the same for both.
 
-Once authenticated, there is no per-user or per-role authorization on the Flight port: every user can
-run any SQL statement the DuckDB connection allows, including statements that modify data.
+Once authenticated, there is no per-statement authorization on the Flight port: every user can run any SQL
+statement the DuckDB connection allows, including statements that modify data, unless it has the privilege
+[`READ_ONLY`](#privileges), in which case its database is opened read-only.
 
 ## TLS
 
@@ -186,5 +221,7 @@ These are tracked here so they are not mistaken for features:
 1. Flight bearer tokens are kept in memory; they are not shared between servers and do not survive a restart.
 2. No TLS on either port; the `tls.*` properties are ignored.
 3. The JWT signing secret is hard-coded.
-4. No read-only enforcement: clients can send `INSERT`, `UPDATE`, `DROP` and other statements.
-5. Only the first admin is created automatically; further users must be added by hand in the metadata database.
+4. `POST /management/shutdown` only requires an authenticated user, not the `admin` role.
+5. Read-only is opt-in: only users with the privilege [`READ_ONLY`](#privileges) are limited, and even they can still
+   write files with `COPY ... TO` and DuckDB keeps its access to the file system and the network (#13).
+6. Only the first admin is created automatically; further users must be added by hand in the metadata database.

@@ -18,6 +18,10 @@ import io.opencanard.storage.StorageService;
  * <li>a login without a registered database is refused with {@link NoDatabaseException}: there is no
  * shared fallback.</li>
  * </ul>
+ * A non-admin user with the privilege {@link Privileges#READ_ONLY} (granted to the user or to one of its roles) gets
+ * its database opened with {@code access_mode=READ_ONLY}. The privilege is read again on every call, so a grant or a
+ * revoke applies from the next connection on. Admins always work read-write on the metadata database, which the
+ * server itself keeps open read-write; for them the privilege is ignored.
  * Before a connection is returned, the S3 storages of the login are registered in it (see
  * {@link StorageService#apply}), so queries on {@code s3://bucket/...} use the user's own credentials.
  * Each call returns a new connection (a duplicate of the open database), which the caller closes. Closing it
@@ -40,6 +44,7 @@ public class UserConnections {
 	private final UserDatabases userDatabases;
 	private final StorageService storages;
 	private final UserRepository userRepository = new UserRepository();
+	private final PrivilegeRepository privileges = new PrivilegeRepository();
 
 	public UserConnections(Connection metadatadb, UserDatabases userDatabases, StorageService storages) {
 		this.metadatadb = metadatadb;
@@ -74,12 +79,26 @@ public class UserConnections {
 			logger.debug("'{}' is an admin and uses the metadata database", login);
 			return ((DuckDBConnection) metadatadb).duplicate();
 		}
-		Connection personal = userDatabases.connect(login);
+		boolean readOnly = isReadOnly(login);
+		Connection personal = userDatabases.connect(login, readOnly);
 		if (personal == null) {
 			throw new NoDatabaseException("No database is registered for '" + login + "' in opencanard_databases");
 		}
-		logger.debug("'{}' uses its registered database", login);
+		logger.debug("'{}' uses its registered database{}", login, readOnly ? " (read-only)" : "");
 		return personal;
+	}
+
+	/**
+	 * True when the login has the privilege {@link Privileges#READ_ONLY}, directly or through a role. If the
+	 * privileges cannot be read the connection is refused rather than opened writable.
+	 */
+	public boolean isReadOnly(String login) throws SQLException {
+		if (login == null) {
+			return false;
+		}
+		try (Connection c = ((DuckDBConnection) metadatadb).duplicate()) {
+			return privileges.has(c, login, Privileges.READ_ONLY);
+		}
 	}
 
 	/** True when the login has the role {@code admin} in the metadata database. */

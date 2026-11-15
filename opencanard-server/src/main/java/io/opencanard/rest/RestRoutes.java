@@ -93,6 +93,11 @@ public class RestRoutes {
 		routes.post("/management/roles", admin::createRole);
 		routes.put("/management/roles/{name}", admin::updateRole);
 		routes.delete("/management/roles/{name}", admin::deleteRole);
+		routes.get("/management/privileges", admin::listPrivileges);
+		routes.put("/management/users/{username}/privileges/{privilege}", admin::grantUserPrivilege);
+		routes.delete("/management/users/{username}/privileges/{privilege}", admin::revokeUserPrivilege);
+		routes.put("/management/roles/{name}/privileges/{privilege}", admin::grantRolePrivilege);
+		routes.delete("/management/roles/{name}/privileges/{privilege}", admin::revokeRolePrivilege);
 		routes.post("/management/shutdown", controller::shutdown);
 	}
 }

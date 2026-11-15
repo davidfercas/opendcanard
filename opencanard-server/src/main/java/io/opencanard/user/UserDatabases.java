@@ -38,6 +38,8 @@ public class UserDatabases implements AutoCloseable {
 	private final DatabaseRegistry registry = new DatabaseRegistry();
 	/** One open "base" connection per database file; it keeps the database open between requests. */
 	private final Map<String, DuckDBConnection> open = new HashMap<>();
+	/** The access mode each entry of {@link #open} was opened with (true: {@code access_mode=READ_ONLY}). */
+	private final Map<String, Boolean> openReadOnly = new HashMap<>();
 
 	public UserDatabases(Path dir, Connection metadatadb) throws IOException {
 		this.metadatadb = metadatadb;
@@ -96,6 +98,7 @@ public class UserDatabases implements AutoCloseable {
 	public synchronized void delete(String username) throws Exception {
 		Path file = databaseFile(username);
 		DuckDBConnection base = open.remove(file.toString());
+		openReadOnly.remove(file.toString());
 		if (base != null) {
 			base.close();
 		}
@@ -118,6 +121,7 @@ public class UserDatabases implements AutoCloseable {
 			throw new IOException("Refusing to remove '" + duckdbFile + "': it is outside " + dir);
 		}
 		DuckDBConnection base = open.remove(file.toString());
+		openReadOnly.remove(file.toString());
 		if (base != null) {
 			try {
 				base.close();
@@ -131,13 +135,25 @@ public class UserDatabases implements AutoCloseable {
 		return removed;
 	}
 
+	/** {@link #connect(String, boolean)} in read-write mode. */
+	public Connection connect(String login) throws SQLException {
+		return connect(login, false);
+	}
+
 	/**
 	 * A new connection to the database registered for the login in {@code opencanard_databases}, or
 	 * {@code null} if the login has none. The caller must close it.
+	 * <p>
+	 * With {@code readOnly} the file is opened with {@code access_mode=READ_ONLY} (privilege
+	 * {@link Privileges#READ_ONLY}). DuckDB fixes the access mode when it opens a file and refuses a second instance of
+	 * the same file with another mode, so when the mode asked for differs from the one the file is open with, the
+	 * file is closed and opened again. That only succeeds once the connections handed out before (running queries)
+	 * are closed; until then the call fails, so a read-only user never gets a writable connection.
 	 *
-	 * @throws SQLException if the registered file is missing or lies outside the user databases directory
+	 * @throws SQLException if the registered file is missing or lies outside the user databases directory, or the
+	 *                      file is still in use with the other access mode
 	 */
-	public Connection connect(String login) throws SQLException {
+	public Connection connect(String login, boolean readOnly) throws SQLException {
 		if (login == null) {
 			return null;
 		}
@@ -155,15 +171,36 @@ public class UserDatabases implements AutoCloseable {
 		}
 
 		DuckDBConnection base;
+		String key = file.toString();
 		synchronized (this) {
-			base = open.get(file.toString());
+			base = open.get(key);
+			if (base != null && openReadOnly.getOrDefault(key, false) != readOnly) {
+				logger.info("[user-db] access mode of {} changes to {}, reopening it", file,
+						readOnly ? "READ_ONLY" : "READ_WRITE");
+				open.remove(key);
+				openReadOnly.remove(key);
+				try {
+					base.close();
+				} catch (SQLException e) {
+					logger.warn("[user-db] could not close {} before reopening it: {}", file, e.getMessage());
+				}
+				base = null;
+			}
 			if (base == null) {
 				if (Files.notExists(file)) {
 					throw new SQLException("The database '" + entry.getDatabaseName() + "' of '" + login
 							+ "' is registered as " + file + " but the file does not exist");
 				}
-				base = open(login, file);
-				open.put(file.toString(), base);
+				try {
+					base = open(login, file, readOnly);
+				} catch (SQLException e) {
+					throw new SQLException("The database '" + entry.getDatabaseName() + "' of '" + login
+							+ "' cannot be opened " + (readOnly ? "read-only" : "read-write")
+							+ ". If its access mode was just changed, queries started before still hold it: try again "
+							+ "when they finish (" + e.getMessage() + ")", e);
+				}
+				open.put(key, base);
+				openReadOnly.put(key, readOnly);
 			}
 		}
 		return base.duplicate();
@@ -250,8 +287,25 @@ public class UserDatabases implements AutoCloseable {
 		}
 	}
 
-	private DuckDBConnection open(String username, Path file) throws SQLException {
-		DuckDBConnection conn = (DuckDBConnection) DriverManager.getConnection(url(file));
+	private DuckDBConnection open(String username, Path file, boolean readOnly) throws SQLException {
+		DuckDBConnection conn = (DuckDBConnection) DriverManager
+				.getConnection(readOnly ? url(file) + ";access_mode=READ_ONLY" : url(file));
+		if (readOnly) {
+			// never hand out a writable connection to a read-only user: check what DuckDB actually opened
+			boolean confirmed;
+			try (Statement stmt = conn.createStatement();
+					java.sql.ResultSet rs = stmt.executeQuery(
+							"SELECT readonly FROM duckdb_databases() WHERE database_name = current_database()")) {
+				confirmed = rs.next() && rs.getBoolean(1);
+			} catch (SQLException e) {
+				conn.close();
+				throw e;
+			}
+			if (!confirmed) {
+				conn.close();
+				throw new SQLException("DuckDB did not open " + file + " in read-only mode");
+			}
+		}
 		try (Statement stmt = conn.createStatement()) {
 			// Not needed for Arrow streaming (the JDBC driver exports Arrow itself) and not published for DuckDB 2.0:
 			// loaded when available, a failure is only logged
@@ -261,7 +315,8 @@ public class UserDatabases implements AutoCloseable {
 			logger.warn("[user-db] DuckDB arrow extension not available for '{}' ({}); not needed", username,
 					e.getMessage());
 		}
-		logger.info("[user-db] opened the database of '{}': {}", username, file);
+		logger.info("[user-db] opened the database of '{}' ({}): {}", username, readOnly ? "READ_ONLY" : "READ_WRITE",
+				file);
 		return conn;
 	}
 
@@ -275,6 +330,7 @@ public class UserDatabases implements AutoCloseable {
 			}
 		}
 		open.clear();
+		openReadOnly.clear();
 		logger.info("[user-db] all user databases closed");
 	}
 

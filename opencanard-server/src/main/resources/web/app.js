@@ -23,6 +23,7 @@
 		epoch: 0,                 // bumped on every sign in and sign out; replies from an older epoch are dropped
 		users: [],                // users listed in Administration > Users (admins only)
 		roles: [],                // roles listed in Administration > Roles (admins only)
+		privileges: [],           // grantable privileges [{name, description}] (admins only)
 		history: [],              // past queries of the signed-in user, newest first
 		historySize: 10
 	};
@@ -123,7 +124,7 @@
 		state.bucket = {};
 		state.s3open = new Set();
 		firstLoad = true;
-		['queriesDialog', 'storageDialog', 'removeDialog', 'usersDialog', 'deleteUserDialog', 'userRolesDialog', 'rolesDialog', 'deleteRoleDialog'].forEach(function (id) {
+		['queriesDialog', 'storageDialog', 'removeDialog', 'usersDialog', 'deleteUserDialog', 'userRolesDialog', 'rolesDialog', 'deleteRoleDialog', 'privilegesDialog'].forEach(function (id) {
 			var d = $(id);
 			if (d && d.open) d.close(); // closing the running-queries dialog also stops its refresh timer
 		});
@@ -195,7 +196,7 @@
 			$('app').hidden = false;
 			$('who').textContent = session.username + (session.admin ? ' (admin)' : '');
 			$('adminMenu').hidden = !session.admin; // the server checks the role again on every call
-			$('connLabel').textContent = session.admin ? 'Metadata database' : 'Personal database';
+			$('connLabel').textContent = session.admin ? 'Metadata database' : session.readOnly ? 'Personal database (read-only)' : 'Personal database';
 			$('sql').focus();
 			loadStorages();
 			return loadCatalog(true);
@@ -1198,10 +1199,24 @@
 	}
 
 	function loadRoleList() {
-		return api('/management/roles').then(function (roles) {
-			state.roles = roles || [];
+		return Promise.all([api('/management/roles'), api('/management/privileges')]).then(function (r) {
+			state.roles = r[0] || [];
+			state.privileges = r[1] || [];
 			return state.roles;
 		});
+	}
+
+	function privTag(name, inheritedFrom) {
+		var tag = el('span', { class: 'priv-tag' + (inheritedFrom ? ' inherited' : ''), text: name });
+		tag.title = inheritedFrom ? 'Granted through the role ' + inheritedFrom : 'Granted to the user';
+		return tag;
+	}
+
+	/** Roles of the user (from state.roles) that grant the privilege. */
+	function rolesGranting(u, privilege) {
+		return state.roles.filter(function (r) {
+			return (u.roles || []).indexOf(r.name) >= 0 && (r.privileges || []).indexOf(privilege) >= 0;
+		}).map(function (r) { return r.name; });
 	}
 
 	// ----- users -----
@@ -1244,7 +1259,7 @@
 			return;
 		}
 		var head = el('tr');
-		[['User', ''], ['Roles', 'w-role'], ['Database files', ''], ['Created', 'w-created'], ['', 'w-action']].forEach(function (c) {
+		[['User', ''], ['Roles & privileges', 'w-role'], ['Database files', ''], ['Created', 'w-created'], ['', 'w-action']].forEach(function (c) {
 			var th = el('th', { text: c[0] });
 			if (c[1]) th.className = c[1];
 			if (!c[0]) th.setAttribute('aria-label', 'Actions');
@@ -1260,6 +1275,10 @@
 			var roles = el('td', { class: 'u-roles' });
 			if (u.roles && u.roles.length) u.roles.forEach(function (r) { roles.appendChild(roleTag(r)); });
 			else roles.appendChild(el('span', { class: 'help', text: 'none' }));
+			(u.effectivePrivileges || []).forEach(function (p) {
+				var direct = (u.privileges || []).indexOf(p) >= 0;
+				roles.appendChild(privTag(p, direct ? null : rolesGranting(u, p).join(', ')));
+			});
 			tr.appendChild(roles);
 			var isAdmin = u.roles && u.roles.indexOf('admin') >= 0;
 			var files = u.databases && u.databases.length ? u.databases.join(', ') : (isAdmin ? 'metadata database' : '—');
@@ -1269,6 +1288,10 @@
 			var edit = el('button', { type: 'button', class: 'btn small', 'aria-label': 'Change the roles of ' + u.username }, [icon('i-shield'), document.createTextNode('Roles')]);
 			edit.addEventListener('click', function () { openUserRoles(u); });
 			actions.appendChild(edit);
+			var grant = el('button', { type: 'button', class: 'btn small', 'aria-label': 'Grant privileges to ' + u.username }, [icon('i-key'), document.createTextNode('Privileges')]);
+			grant.title = 'Grant or revoke privileges';
+			grant.addEventListener('click', function () { openPrivileges({ kind: 'user', item: u }); });
+			actions.appendChild(grant);
 			// the built-in admin user cannot be deleted: no button at all
 			if (!u['protected']) {
 				var del = el('button', { type: 'button', class: 'btn small danger-outline', 'aria-label': 'Delete ' + u.username }, [icon('i-trash'), document.createTextNode('Delete')]);
@@ -1449,12 +1472,21 @@
 			var name = el('td', { class: 'r-name' }, [roleTag(r.name)]);
 			if (r.builtIn) name.appendChild(el('span', { class: 'q-tag', text: 'built-in' }));
 			tr.appendChild(name);
-			tr.appendChild(el('td', { class: 'r-desc', text: r.description || '' }));
+			var desc = el('td', { class: 'r-desc', text: r.description || '' });
+			if (r.privileges && r.privileges.length) {
+				desc.appendChild(el('br'));
+				r.privileges.forEach(function (p) { desc.appendChild(privTag(p)); });
+			}
+			tr.appendChild(desc);
 			tr.appendChild(el('td', { class: 'r-users', text: String(r.users) }));
 			var actions = el('td', { class: 'r-action' });
 			var edit = el('button', { type: 'button', class: 'btn small', 'aria-label': 'Change ' + r.name }, [icon('i-edit'), document.createTextNode('Edit')]);
 			edit.addEventListener('click', function () { editRole(r); });
 			actions.appendChild(edit);
+			var grant = el('button', { type: 'button', class: 'btn small', 'aria-label': 'Grant privileges to the role ' + r.name }, [icon('i-key'), document.createTextNode('Privileges')]);
+			grant.title = 'Grant or revoke privileges';
+			grant.addEventListener('click', function () { openPrivileges({ kind: 'role', item: r }); });
+			actions.appendChild(grant);
 			if (!r.builtIn) {
 				var del = el('button', { type: 'button', class: 'btn small danger-outline', 'aria-label': 'Delete ' + r.name }, [icon('i-trash'), document.createTextNode('Delete')]);
 				del.addEventListener('click', function () { openDeleteRole(r); });
@@ -1559,7 +1591,91 @@
 		});
 	});
 
-	[usersDialog, deleteUserDialog, userRolesDialog, rolesDialog, deleteRoleDialog].forEach(function (d) {
+	// ----- privileges (of a user or a role) -----
+
+	var privilegesDialog = $('privilegesDialog');
+	var editingPrivileges = null;   // { kind: 'user' | 'role', item: user or role }
+
+	function openPrivileges(target) {
+		editingPrivileges = target;
+		var isUser = target.kind === 'user';
+		var name = isUser ? target.item.username : target.item.name;
+		var granted = target.item.privileges || [];
+		showFormError('privilegesError', '');
+		$('privilegesTitle').textContent = 'Privileges of ' + (isUser ? '' : 'the role ') + name;
+		var box = $('pvList');
+		Array.prototype.slice.call(box.querySelectorAll('.role-check, .role-empty')).forEach(function (n) { n.remove(); });
+		if (state.privileges.length === 0) box.appendChild(el('span', { class: 'help role-empty', text: 'No privileges available.' }));
+		state.privileges.forEach(function (p) {
+			var check = el('input', { type: 'checkbox', value: p.name });
+			check.checked = granted.indexOf(p.name) >= 0;
+			var label = el('label', { class: 'role-check', title: p.description || '' }, [check, document.createTextNode(p.name)]);
+			if (p.description) label.appendChild(el('span', { class: 'desc', text: '— ' + p.description }));
+			if (isUser) {
+				var via = rolesGranting(target.item, p.name);
+				if (via.length) label.appendChild(el('span', { class: 'via', text: ' (also granted through ' + (via.length === 1 ? 'the role ' : 'the roles ') + via.join(', ') + ')' }));
+			}
+			box.appendChild(label);
+		});
+		var note = '';
+		if (isUser && (target.item.roles || []).indexOf('admin') >= 0) {
+			note = name + ' is an admin and works on the metadata database: READ_ONLY is not applied to admins.';
+		} else if (!isUser && target.item.name === 'admin') {
+			note = 'Users with the role admin work on the metadata database: READ_ONLY is not applied to them.';
+		} else if (!isUser) {
+			note = 'Every user with the role ' + name + ' gets these privileges.';
+		}
+		$('privilegesNote').textContent = note;
+		$('privilegesNote').hidden = !note;
+		$('privilegesSave').disabled = state.privileges.length === 0;
+		privilegesDialog.showModal();
+		var first = box.querySelector('input');
+		if (first) first.focus();
+	}
+
+	$('privilegesCancel').addEventListener('click', function () { privilegesDialog.close(); });
+	$('privilegesForm').addEventListener('submit', function (event) {
+		event.preventDefault();
+		if (!editingPrivileges) return;
+		var target = editingPrivileges;
+		var isUser = target.kind === 'user';
+		var name = isUser ? target.item.username : target.item.name;
+		var before = target.item.privileges || [];
+		var after = pickedRoles($('pvList'));
+		var changes = [];
+		after.forEach(function (p) { if (before.indexOf(p) < 0) changes.push({ privilege: p, method: 'PUT' }); });
+		before.forEach(function (p) { if (after.indexOf(p) < 0) changes.push({ privilege: p, method: 'DELETE' }); });
+		if (changes.length === 0) { privilegesDialog.close(); return; }
+		var base = (isUser ? '/management/users/' : '/management/roles/') + encodeURIComponent(name) + '/privileges/';
+		var save = $('privilegesSave');
+		save.disabled = true;
+		// one request per change, in order, so a failure leaves the earlier ones applied and is reported
+		changes.reduce(function (p, c) {
+			return p.then(function () { return api(base + encodeURIComponent(c.privilege), { method: c.method }); });
+		}, Promise.resolve()).then(function () {
+			privilegesDialog.close();
+			var granted = changes.filter(function (c) { return c.method === 'PUT'; }).map(function (c) { return c.privilege; });
+			var revoked = changes.filter(function (c) { return c.method === 'DELETE'; }).map(function (c) { return c.privilege; });
+			var message = 'Privileges of ' + (isUser ? '"' : 'the role "') + name + '": ' +
+				[granted.length ? 'granted ' + granted.join(', ') : '', revoked.length ? 'revoked ' + revoked.join(', ') : '']
+					.filter(Boolean).join('; ') + '.';
+			if (isUser) {
+				showFormError('usersError', '');
+				showNotice('usersNotice', message);
+				return loadUsers();
+			}
+			showFormError('rolesError', '');
+			showNotice('rolesNotice', message);
+			return loadRoles();
+		}, function (e) {
+			showFormError('privilegesError', adminError(e));
+			save.disabled = false;
+			// refresh the lists behind the dialog: some changes may already be applied
+			if (isUser) loadUsers(); else loadRoles();
+		});
+	});
+
+	[usersDialog, deleteUserDialog, userRolesDialog, rolesDialog, deleteRoleDialog, privilegesDialog].forEach(function (d) {
 		d.addEventListener('mousedown', function (event) { if (event.target === d) d.close(); });
 	});
 

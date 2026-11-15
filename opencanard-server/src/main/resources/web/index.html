@@ -255,7 +255,7 @@
 			<fieldset class="role-picker span-all" id="nuRoles">
 				<legend>Roles</legend>
 			</fieldset>
-			<span class="help span-all">Letters, digits, '_' and '-', up to 64 characters. Every user gets its own database file in the data folder; users with the role admin work on the metadata database.</span>
+			<span class="help span-all">Letters, digits, '_' and '-', up to 64 characters. Every user gets its own database file in the data folder; users with the role admin work on the metadata database. Use Privileges on a user (or on a role) to grant READ_ONLY.</span>
 		</form>
 		<p id="usersError" class="form-error" role="alert" hidden></p>
 		<p id="usersNotice" class="test-result ok" role="status" hidden></p>
@@ -293,6 +293,23 @@
 		<div class="dialog-actions">
 			<button type="button" class="btn" id="userRolesCancel">Cancel</button>
 			<button type="submit" class="run" id="userRolesSave">Save roles</button>
+		</div>
+	</form>
+</dialog>
+
+<!-- Privileges of one user or role -->
+<dialog id="privilegesDialog" class="dialog small" aria-labelledby="privilegesTitle">
+	<form id="privilegesForm" method="dialog">
+		<h2 id="privilegesTitle">Privileges</h2>
+		<p class="dialog-note">Tick a privilege to grant it, untick it to revoke it. Changes apply from the next connection.</p>
+		<fieldset class="role-picker stacked" id="pvList">
+			<legend class="sr-only">Privileges</legend>
+		</fieldset>
+		<p id="privilegesNote" class="dialog-note" hidden></p>
+		<p id="privilegesError" class="form-error" role="alert" hidden></p>
+		<div class="dialog-actions">
+			<button type="button" class="btn" id="privilegesCancel">Cancel</button>
+			<button type="submit" class="run" id="privilegesSave">Save privileges</button>
 		</div>
 	</form>
 </dialog>
