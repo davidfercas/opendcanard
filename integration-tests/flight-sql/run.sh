@@ -114,6 +114,8 @@ expect 401 "$REST/management/users" -H "Authorization: Bearer $FORGED"
 echo "JWT checks passed"
 
 echo "== ADBC (Python)"
+# the Python tests sign their own JWTs with the key the server generated
+export OC_JWT_SECRET="$(cat "$SERVER/metadata/jwt.key")"
 python3 -m pytest -q "$HERE/test_flight_sql.py"
 
 echo "== Apache Arrow Flight SQL JDBC driver"
