@@ -132,7 +132,15 @@ public class OpenCanardApiController {
 		}
 	}
 
+	@io.javalin.openapi.OpenApi(path = "/management/shutdown", methods = io.javalin.openapi.HttpMethod.POST,
+			summary = "Stop the server", description = "Stops the server process immediately. Requires the admin role.",
+			security = { @io.javalin.openapi.OpenApiSecurity(name = "basicAuth") }, tags = { "Management" },
+			responses = { @io.javalin.openapi.OpenApiResponse(status = "200", description = "The server is shutting down"),
+					@io.javalin.openapi.OpenApiResponse(status = "401", description = "Missing or invalid credentials"),
+					@io.javalin.openapi.OpenApiResponse(status = "403", description = "User does not have the admin role") })
 	public void shutdown(io.javalin.http.Context ctx) {
+		requireAdmin(ctx);
+		logger.info("Shutdown requested by '{}'", (Object) ctx.attribute("username"));
 		ctx.result("Shutting down...");
 		System.exit(0);
 	}

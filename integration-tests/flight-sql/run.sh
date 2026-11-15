@@ -81,6 +81,8 @@ expect 400 -X PUT "$REST/management/users/admin/roles" "${ADM[@]}" "${JSON[@]}" 
 expect 400 -X DELETE "$REST/management/users/admin" "${ADM[@]}"
 expect 403 "$REST/management/roles" -u bob:bob-pw
 expect 403 -X DELETE "$REST/management/users/alice" -u bob:bob-pw
+# only an admin can stop the server (#19)
+expect 403 -X POST "$REST/management/shutdown" -u bob:bob-pw
 expect 200 -X DELETE "$REST/management/roles/analysts" "${ADM[@]}"
 # a second admin cannot delete the built-in admin user either
 expect 201 -X POST "$REST/management/users" "${ADM[@]}" "${JSON[@]}" -d '{"username":"admin2","password":"admin2-pw","roles":["admin"]}'

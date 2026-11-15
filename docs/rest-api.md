@@ -25,7 +25,7 @@ not checked against a running instance.
 | `POST` | `/management/roles` | admin | Creates a role, see [Roles](#roles). |
 | `PUT` | `/management/roles/{name}` | admin | Changes the description and the name of a role. |
 | `DELETE` | `/management/roles/{name}` | admin | Deletes a role and removes it from its users. |
-| `POST` | `/management/shutdown` | any authenticated user | Stops the server process immediately. |
+| `POST` | `/management/shutdown` | admin | Stops the server process immediately. |
 
 Error responses: `401` for missing or invalid credentials, `403` when the `admin` role is required and
 missing, `400` for invalid input, `409` when something already exists, `500` for database errors.
@@ -124,8 +124,7 @@ curl -s -X PUT http://localhost:8084/management/users/david/roles -u admin:chang
 
 ## Notes and limitations
 
-- `/management/shutdown` calls `System.exit(0)` and, unlike the other management endpoints, does not
-  check for the `admin` role.
+- `/management/shutdown` calls `System.exit(0)`: the process stops without waiting for running queries.
 - The JWT signing secret is a constant in the source code, so tokens can be forged by anyone who has
   read it. See [Known limitations](authentication.md#known-limitations).
 - Login and the management calls read the users table in the metadata database. The server creates it

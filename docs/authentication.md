@@ -22,7 +22,7 @@ data away from other users of that network.
 
 Users live in the table `main.opencanard_users` of the **metadata** database
 (`metadata/metadata.duckdb`). A user can have several roles, see [Roles](#roles). The REST management
-endpoints (except shutdown, see [known limitations](#known-limitations)) require the role `admin`, written
+endpoints require the role `admin`, written
 exactly like that in lowercase; no other role gives management access.
 
 ### Roles
@@ -186,6 +186,5 @@ These are tracked here so they are not mistaken for features:
 1. Flight bearer tokens are kept in memory; they are not shared between servers and do not survive a restart.
 2. No TLS on either port; the `tls.*` properties are ignored.
 3. The JWT signing secret is hard-coded.
-4. `POST /management/shutdown` only requires an authenticated user, not the `admin` role.
-5. No read-only enforcement: clients can send `INSERT`, `UPDATE`, `DROP` and other statements.
-6. Only the first admin is created automatically; further users must be added by hand in the metadata database.
+4. No read-only enforcement: clients can send `INSERT`, `UPDATE`, `DROP` and other statements.
+5. Only the first admin is created automatically; further users must be added by hand in the metadata database.
