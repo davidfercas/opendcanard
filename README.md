@@ -65,11 +65,14 @@ This produces:
 
 ### 2. Start the server
 
-Unzip the distribution and run the start script:
+Unzip the distribution and run the start script. The admin credentials are required on every start;
+they create the first admin when the metadata database does not exist yet:
 
 ```bash
 unzip opencanard-server/target/opencanard.zip
 cd opencanard
+export OPENCANARD_ADMIN_USER=admin
+export OPENCANARD_ADMIN_PASSWORD=change-me   # set OPENCANARD_... with "set" on Windows
 bin/start.sh          # bin\start.bat on Windows
 ```
 
@@ -77,11 +80,13 @@ The Flight server listens on port `8815` and the REST API on `8084` by default.
 The web console is at `http://localhost:8084/opencanard-console/`.
 See [docs/configuration.md](docs/configuration.md) to change them.
 
-### 3. Create a user
+### 3. Create users
 
-The server does not create its user table for you yet. Create it once in the metadata database
-(`metadata/metadata.duckdb`) and add an administrator. The full steps, including how to generate
-the bcrypt hash, are in [docs/authentication.md](docs/authentication.md#creating-users).
+On its first start the server creates the metadata database and the admin user from
+`OPENCANARD_ADMIN_USER` / `OPENCANARD_ADMIN_PASSWORD`. Sign in to the web console with it and add
+users in **Administration → Users** (or with `POST /management/users`, see
+[docs/rest-api.md](docs/rest-api.md#creating-a-user)). Each user gets its own DuckDB database.
+See [docs/authentication.md](docs/authentication.md#creating-users).
 
 ### 4. Query it
 

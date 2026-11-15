@@ -7,8 +7,10 @@ or a Docker container.
 > ports `8815` and `8084` to networks you do not trust. See
 > [Authentication and security](authentication.md).
 
-Both options need the same first step after the server is up: create the users table and an
-administrator, as described in [Authentication and security](authentication.md#creating-users).
+Both need the admin credentials in `OPENCANARD_ADMIN_USER` and `OPENCANARD_ADMIN_PASSWORD`: the server
+refuses to start without them, and uses them to create the first admin when the metadata database does not
+exist yet. Then sign in to the web console with that user and create the other users there, see
+[Authentication and security](authentication.md#creating-users).
 
 ## Red Hat, Rocky, AlmaLinux (systemd)
 
@@ -34,8 +36,9 @@ The script:
 1. installs `java-17-openjdk-headless` and `unzip` with `dnf` if they are missing;
 2. creates the system user `opencanard` (no login shell);
 3. installs the server into `/opt/opencanard`;
-4. installs the systemd unit, creates `/etc/sysconfig/opencanard`, enables the service and starts it
-   (use `--no-start` to only enable it).
+4. installs the systemd unit, creates `/etc/sysconfig/opencanard` (mode `0600`) with the admin user `admin`
+   and a random password, which it prints once, then enables the service and starts it (use `--no-start` to
+   only enable it). On an upgrade the existing file is kept; the script warns if it has no admin credentials.
 
 It does not open any firewall port. When you are ready, and only for trusted networks:
 
@@ -80,6 +83,7 @@ docker build -t opencanard .
 
 docker run -d --name opencanard \
   -p 8815:8815 -p 8084:8084 \
+  -e OPENCANARD_ADMIN_USER=admin -e OPENCANARD_ADMIN_PASSWORD='change-me' \
   -v opencanard-data:/opt/opencanard/data \
   -v opencanard-metadata:/opt/opencanard/metadata \
   opencanard

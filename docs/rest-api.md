@@ -28,7 +28,7 @@ not checked against a running instance.
 | `GET` | `/management/privileges` | admin | Lists the privileges that can be granted: `name`, `description`. See [Privileges](#privileges). |
 | `PUT` / `DELETE` | `/management/users/{username}/privileges/{privilege}` | admin | Grants / revokes a privilege on a user. |
 | `PUT` / `DELETE` | `/management/roles/{name}/privileges/{privilege}` | admin | Grants / revokes a privilege on a role. |
-| `POST` | `/management/shutdown` | any authenticated user | Stops the server process immediately. |
+| `POST` | `/management/shutdown` | admin | Stops the server process immediately. |
 
 Error responses: `401` for missing or invalid credentials, `403` when the `admin` role is required and
 missing, `400` for invalid input, `409` when something already exists, `500` for database errors.
@@ -148,8 +148,7 @@ curl -s -X PUT    http://localhost:8084/management/roles/analyst/privileges/READ
 
 ## Notes and limitations
 
-- `/management/shutdown` calls `System.exit(0)` and, unlike the other management endpoints, does not
-  check for the `admin` role.
+- `/management/shutdown` calls `System.exit(0)`: the process stops without waiting for running queries.
 - Tokens are signed with the installation's own key. See [JWT signing key](authentication.md#jwt-signing-key).
 - Login and the management calls read the users table in the metadata database. The server creates it
   with the first admin user on the first start. See [Creating users](authentication.md#creating-users).
