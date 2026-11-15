@@ -44,7 +44,7 @@ curl -s -X POST http://localhost:8084/api/login \
 { "token": "<JWT>" }
 ```
 
-The token is a JWT signed with HS256 and valid for one hour. It carries the claims `username` and
+The token is a JWT signed with HS256 and valid for one hour (`jwt.expiry.minutes`). It carries the claims `username` and
 `roles`.
 
 ### Calling management endpoints
@@ -126,8 +126,7 @@ curl -s -X PUT http://localhost:8084/management/users/david/roles -u admin:chang
 
 - `/management/shutdown` calls `System.exit(0)` and, unlike the other management endpoints, does not
   check for the `admin` role.
-- The JWT signing secret is a constant in the source code, so tokens can be forged by anyone who has
-  read it. See [Known limitations](authentication.md#known-limitations).
+- Tokens are signed with the installation's own key. See [JWT signing key](authentication.md#jwt-signing-key).
 - Login and the management calls read the users table in the metadata database. The server creates it
   with the first admin user on the first start. See [Creating users](authentication.md#creating-users).
 

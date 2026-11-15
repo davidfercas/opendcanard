@@ -146,7 +146,7 @@ Users without the admin role never see the menu, and the server refuses its call
   but a slow S3 request already in progress can finish first.
 - Arrow Flight runs each `SELECT` twice (once to get the schema, once to stream it), so a Flight query can
   show up twice in **Running queries**, one after the other.
-- The session is a JWT valid for one hour, kept in the tab's `sessionStorage`. After it expires the
+- The session is a JWT valid for one hour by default (`jwt.expiry.minutes`), kept in the tab's `sessionStorage`. After it expires the
   console asks you to sign in again.
 
 ## API behind the console

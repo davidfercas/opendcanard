@@ -8,7 +8,7 @@
 It exposes SQL execution over [Apache Arrow Flight](https://arrow.apache.org/docs/format/Flight.html), so Python, Java and BI tools can query Parquet files and S3-compatible object storage without relying on a managed cloud service.
 
 > **Status: early development (v0.1).** The core query path works, but several security features are not
-> finished yet (no TLS, hard-coded JWT secret). Read
+> finished yet (no TLS, no read-only enforcement). Read
 > [docs/authentication.md](docs/authentication.md) before exposing a server to any network you do not fully trust.
 
 ## What OpenCanard is
