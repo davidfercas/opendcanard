@@ -14,7 +14,7 @@ scripts set for you.
 opencanard/
 ├── bin/        start.sh, start.bat
 ├── conf/       opencanard.properties, log4j2.xml
-├── lib/        opencanard-server-0.1.jar and external/ (dependencies)
+├── lib/        opencanard-server-0.1.0.jar and external/ (dependencies)
 ├── data/       the analytics DuckDB database, and users/ with one DuckDB file per user (created at runtime)
 ├── metadata/   the metadata DuckDB database with users (created at runtime)
 └── logs/       log output (created at runtime)

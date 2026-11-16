@@ -126,7 +126,7 @@ Parquet and object-storage data is queried with DuckDB's own functions inside th
 
 Prefer the [Flight SQL JDBC driver](#java--bi-tools-flight-sql-jdbc-driver), which does more. The bundled
 driver remains for existing setups. Build the project (`mvn package`) and use the shaded driver
-`opencanard-jdbc-driver/target/opencanard-jdbc-driver-0.1-all.jar`.
+`opencanard-jdbc-driver/target/opencanard-jdbc-driver-0.1.0-all.jar`.
 
 | Setting | Value |
 | --- | --- |

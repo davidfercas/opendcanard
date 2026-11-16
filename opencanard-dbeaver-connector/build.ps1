@@ -4,7 +4,7 @@
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
-$driver = '..\opencanard-jdbc-driver\target\opencanard-jdbc-driver-0.1-all.jar'
+$driver = Get-ChildItem '..\opencanard-jdbc-driver\target\opencanard-jdbc-driver-*-all.jar' -ErrorAction SilentlyContinue | Select-Object -First 1
 $out    = 'target'
 $bundle = "$out\bundle"
 $jar    = "$out\org.opencanard.dbeaver.connector_0.1.0.jar"
@@ -12,11 +12,12 @@ $jar    = "$out\org.opencanard.dbeaver.connector_0.1.0.jar"
 if (Test-Path $out) { Remove-Item -Recurse -Force $out }
 New-Item -ItemType Directory -Force "$bundle\drivers" | Out-Null
 Copy-Item -Recurse META-INF, plugin.xml, icons $bundle
-if (Test-Path $driver) {
-    Copy-Item $driver "$bundle\drivers\"
+if ($driver) {
+    # fixed name, referenced by plugin.xml
+    Copy-Item $driver "$bundle\drivers\opencanard-jdbc-driver-all.jar"
     Write-Host "driver jar included: $driver"
 } else {
-    Write-Warning "$driver not found, the plugin is built without the driver jar (add it in DBeaver's driver manager)"
+    Write-Warning "opencanard-jdbc-driver-*-all.jar not found in ..\opencanard-jdbc-driver\target, the plugin is built without the driver jar (add it in DBeaver's driver manager)"
 }
 jar --create --file $jar --manifest "$bundle\META-INF\MANIFEST.MF" -C $bundle plugin.xml -C $bundle icons -C $bundle drivers
 Write-Host "built $jar"

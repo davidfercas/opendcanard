@@ -38,8 +38,8 @@
                         categories="sql,analytic">
                     <!-- The driver jar is packed into the bundle by build.ps1 / build.sh when it has been built.
                          If DBeaver reports a missing file, add the jar by hand: Database > Driver Manager >
-                         OpenCanard > Libraries > Add File (opencanard-jdbc-driver-0.1-all.jar). -->
-                    <file type="jar" path="drivers/opencanard-jdbc-driver-0.1-all.jar" bundle="org.opencanard.dbeaver.connector"/>
+                         OpenCanard > Libraries > Add File (opencanard-jdbc-driver-<version>-all.jar). -->
+                    <file type="jar" path="drivers/opencanard-jdbc-driver-all.jar" bundle="org.opencanard.dbeaver.connector"/>
                 </driver>
             </drivers>
         </datasource>
