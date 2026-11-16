@@ -30,26 +30,25 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public <T> T unwrap(Class<T> iface) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		if (iface.isInstance(this)) {
+			return iface.cast(this);
+		}
+		throw new SQLException("Not a wrapper for " + iface.getName());
 	}
 
 	@Override
 	public boolean isWrapperFor(Class<?> iface) throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return iface.isInstance(this);
 	}
 
 	@Override
 	public boolean allProceduresAreCallable() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean allTablesAreSelectable() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -64,25 +63,22 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean isReadOnly() throws SQLException {
-		// TODO Auto-generated method stub
+		// depends on the user (privilege READ_ONLY); the driver cannot tell
 		return false;
 	}
 
 	@Override
 	public boolean nullsAreSortedHigh() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean nullsAreSortedLow() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean nullsAreSortedAtStart() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
@@ -103,43 +99,36 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public int getDriverMajorVersion() {
-		// TODO Auto-generated method stub
-		return 0;
+		return 0; // 0.1
 	}
 
 	@Override
 	public int getDriverMinorVersion() {
-		// TODO Auto-generated method stub
-		return 0;
+		return 1; // 0.1
 	}
 
 	@Override
 	public boolean usesLocalFiles() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean usesLocalFilePerTable() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsMixedCaseIdentifiers() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean storesUpperCaseIdentifiers() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean storesLowerCaseIdentifiers() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
@@ -155,13 +144,11 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean storesUpperCaseQuotedIdentifiers() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean storesLowerCaseQuotedIdentifiers() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
@@ -217,8 +204,7 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsAlterTableWithDropColumn() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -228,19 +214,18 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean nullPlusNonNullIsNull() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
 	public boolean supportsConvert() throws SQLException {
-		// TODO Auto-generated method stub
+		// CONVERT is not translated
 		return false;
 	}
 
 	@Override
 	public boolean supportsConvert(int fromType, int toType) throws SQLException {
-		// TODO Auto-generated method stub
+		// CONVERT is not translated
 		return false;
 	}
 
@@ -251,20 +236,17 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsDifferentTableCorrelationNames() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
 	public boolean supportsExpressionsInOrderBy() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
 	public boolean supportsOrderByUnrelated() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -274,14 +256,12 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsGroupByUnrelated() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
 	public boolean supportsGroupByBeyondSelect() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -291,37 +271,31 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsMultipleResultSets() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsMultipleTransactions() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsNonNullableColumns() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
 	public boolean supportsMinimumSQLGrammar() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
 	public boolean supportsCoreSQLGrammar() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
 	public boolean supportsExtendedSQLGrammar() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
@@ -332,19 +306,16 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsANSI92IntermediateSQL() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsANSI92FullSQL() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsIntegrityEnhancementFacility() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
@@ -355,14 +326,12 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsFullOuterJoins() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
 	public boolean supportsLimitedOuterJoins() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -382,8 +351,7 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean isCatalogAtStart() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -398,7 +366,6 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsSchemasInProcedureCalls() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
@@ -409,13 +376,11 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsSchemasInIndexDefinitions() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
 	public boolean supportsSchemasInPrivilegeDefinitions() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
@@ -426,49 +391,41 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsCatalogsInProcedureCalls() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsCatalogsInTableDefinitions() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
 	public boolean supportsCatalogsInIndexDefinitions() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
 	public boolean supportsCatalogsInPrivilegeDefinitions() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsPositionedDelete() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsPositionedUpdate() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsSelectForUpdate() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsStoredProcedures() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
@@ -494,8 +451,7 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsCorrelatedSubqueries() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return true;
 	}
 
 	@Override
@@ -510,193 +466,181 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsOpenCursorsAcrossCommit() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsOpenCursorsAcrossRollback() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsOpenStatementsAcrossCommit() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsOpenStatementsAcrossRollback() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public int getMaxBinaryLiteralLength() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getMaxCharLiteralLength() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getMaxColumnNameLength() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getMaxColumnsInGroupBy() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getMaxColumnsInIndex() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getMaxColumnsInOrderBy() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getMaxColumnsInSelect() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getMaxColumnsInTable() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getMaxConnections() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getMaxCursorNameLength() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getMaxIndexLength() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getMaxSchemaNameLength() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getMaxProcedureNameLength() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getMaxCatalogNameLength() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getMaxRowSize() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public boolean doesMaxRowSizeIncludeBlobs() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public int getMaxStatementLength() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getMaxStatements() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getMaxTableNameLength() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getMaxTablesInSelect() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getMaxUserNameLength() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit or not known
 		return 0;
 	}
 
 	@Override
 	public int getDefaultTransactionIsolation() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
+		return Connection.TRANSACTION_NONE;
 	}
 
 	@Override
 	public boolean supportsTransactions() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsTransactionIsolationLevel(int level) throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return level == Connection.TRANSACTION_NONE;
 	}
 
 	@Override
 	public boolean supportsDataDefinitionAndDataManipulationTransactions() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsDataManipulationTransactionsOnly() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean dataDefinitionCausesTransactionCommit() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean dataDefinitionIgnoredInTransactions() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
@@ -709,8 +653,8 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 	@Override
 	public ResultSet getProcedureColumns(String catalog, String schemaPattern, String procedureNamePattern,
 			String columnNamePattern) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		// not available: an empty result with the columns JDBC defines
+		return query("SELECT CAST(NULL AS VARCHAR) AS PROCEDURE_CAT, CAST(NULL AS VARCHAR) AS PROCEDURE_SCHEM, CAST(NULL AS VARCHAR) AS PROCEDURE_NAME, CAST(NULL AS VARCHAR) AS COLUMN_NAME, CAST(NULL AS SMALLINT) AS COLUMN_TYPE, CAST(NULL AS INTEGER) AS DATA_TYPE, CAST(NULL AS VARCHAR) AS TYPE_NAME, CAST(NULL AS INTEGER) AS PRECISION, CAST(NULL AS INTEGER) AS LENGTH, CAST(NULL AS SMALLINT) AS SCALE, CAST(NULL AS SMALLINT) AS RADIX, CAST(NULL AS SMALLINT) AS NULLABLE, CAST(NULL AS VARCHAR) AS REMARKS, CAST(NULL AS VARCHAR) AS COLUMN_DEF, CAST(NULL AS INTEGER) AS SQL_DATA_TYPE, CAST(NULL AS INTEGER) AS SQL_DATETIME_SUB, CAST(NULL AS INTEGER) AS CHAR_OCTET_LENGTH, CAST(NULL AS INTEGER) AS ORDINAL_POSITION, CAST(NULL AS VARCHAR) AS IS_NULLABLE, CAST(NULL AS VARCHAR) AS SPECIFIC_NAME WHERE false");
 	}
 
 	@Override
@@ -792,14 +736,14 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 	@Override
 	public ResultSet getBestRowIdentifier(String catalog, String schema, String table, int scope, boolean nullable)
 			throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		// not available: an empty result with the columns JDBC defines
+		return query("SELECT CAST(NULL AS SMALLINT) AS SCOPE, CAST(NULL AS VARCHAR) AS COLUMN_NAME, CAST(NULL AS INTEGER) AS DATA_TYPE, CAST(NULL AS VARCHAR) AS TYPE_NAME, CAST(NULL AS INTEGER) AS COLUMN_SIZE, CAST(NULL AS INTEGER) AS BUFFER_LENGTH, CAST(NULL AS SMALLINT) AS DECIMAL_DIGITS, CAST(NULL AS SMALLINT) AS PSEUDO_COLUMN WHERE false");
 	}
 
 	@Override
 	public ResultSet getVersionColumns(String catalog, String schema, String table) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		// not available: an empty result with the columns JDBC defines
+		return query("SELECT CAST(NULL AS SMALLINT) AS SCOPE, CAST(NULL AS VARCHAR) AS COLUMN_NAME, CAST(NULL AS INTEGER) AS DATA_TYPE, CAST(NULL AS VARCHAR) AS TYPE_NAME, CAST(NULL AS INTEGER) AS COLUMN_SIZE, CAST(NULL AS INTEGER) AS BUFFER_LENGTH, CAST(NULL AS SMALLINT) AS DECIMAL_DIGITS, CAST(NULL AS SMALLINT) AS PSEUDO_COLUMN WHERE false");
 	}
 
 	@Override
@@ -836,81 +780,69 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsResultSetType(int type) throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return type == ResultSet.TYPE_FORWARD_ONLY;
 	}
 
 	@Override
 	public boolean supportsResultSetConcurrency(int type, int concurrency) throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return type == ResultSet.TYPE_FORWARD_ONLY && concurrency == ResultSet.CONCUR_READ_ONLY;
 	}
 
 	@Override
 	public boolean ownUpdatesAreVisible(int type) throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean ownDeletesAreVisible(int type) throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean ownInsertsAreVisible(int type) throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean othersUpdatesAreVisible(int type) throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean othersDeletesAreVisible(int type) throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean othersInsertsAreVisible(int type) throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean updatesAreDetected(int type) throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean deletesAreDetected(int type) throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean insertsAreDetected(int type) throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsBatchUpdates() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public ResultSet getUDTs(String catalog, String schemaPattern, String typeNamePattern, int[] types)
 			throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		// not available: an empty result with the columns JDBC defines
+		return query("SELECT CAST(NULL AS VARCHAR) AS TYPE_CAT, CAST(NULL AS VARCHAR) AS TYPE_SCHEM, CAST(NULL AS VARCHAR) AS TYPE_NAME, CAST(NULL AS VARCHAR) AS CLASS_NAME, CAST(NULL AS INTEGER) AS DATA_TYPE, CAST(NULL AS VARCHAR) AS REMARKS, CAST(NULL AS SMALLINT) AS BASE_TYPE WHERE false");
 	}
 
 	@Override
@@ -920,51 +852,46 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsSavepoints() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsNamedParameters() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsMultipleOpenResults() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsGetGeneratedKeys() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public ResultSet getSuperTypes(String catalog, String schemaPattern, String typeNamePattern) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		// not available: an empty result with the columns JDBC defines
+		return query("SELECT CAST(NULL AS VARCHAR) AS TYPE_CAT, CAST(NULL AS VARCHAR) AS TYPE_SCHEM, CAST(NULL AS VARCHAR) AS TYPE_NAME, CAST(NULL AS VARCHAR) AS SUPERTYPE_CAT, CAST(NULL AS VARCHAR) AS SUPERTYPE_SCHEM, CAST(NULL AS VARCHAR) AS SUPERTYPE_NAME WHERE false");
 	}
 
 	@Override
 	public ResultSet getSuperTables(String catalog, String schemaPattern, String tableNamePattern) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		// not available: an empty result with the columns JDBC defines
+		return query("SELECT CAST(NULL AS VARCHAR) AS TABLE_CAT, CAST(NULL AS VARCHAR) AS TABLE_SCHEM, CAST(NULL AS VARCHAR) AS TABLE_NAME, CAST(NULL AS VARCHAR) AS SUPERTABLE_NAME WHERE false");
 	}
 
 	@Override
 	public ResultSet getAttributes(String catalog, String schemaPattern, String typeNamePattern,
 			String attributeNamePattern) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		// not available: an empty result with the columns JDBC defines
+		return query("SELECT CAST(NULL AS VARCHAR) AS TYPE_CAT, CAST(NULL AS VARCHAR) AS TYPE_SCHEM, CAST(NULL AS VARCHAR) AS TYPE_NAME, CAST(NULL AS VARCHAR) AS ATTR_NAME, CAST(NULL AS INTEGER) AS DATA_TYPE, CAST(NULL AS VARCHAR) AS ATTR_TYPE_NAME, CAST(NULL AS INTEGER) AS ATTR_SIZE, CAST(NULL AS INTEGER) AS DECIMAL_DIGITS, CAST(NULL AS INTEGER) AS NUM_PREC_RADIX, CAST(NULL AS INTEGER) AS NULLABLE, CAST(NULL AS VARCHAR) AS REMARKS, CAST(NULL AS VARCHAR) AS ATTR_DEF, CAST(NULL AS INTEGER) AS SQL_DATA_TYPE, CAST(NULL AS INTEGER) AS SQL_DATETIME_SUB, CAST(NULL AS INTEGER) AS CHAR_OCTET_LENGTH, CAST(NULL AS INTEGER) AS ORDINAL_POSITION, CAST(NULL AS VARCHAR) AS IS_NULLABLE, CAST(NULL AS VARCHAR) AS SCOPE_CATALOG, CAST(NULL AS VARCHAR) AS SCOPE_SCHEMA, CAST(NULL AS VARCHAR) AS SCOPE_TABLE, CAST(NULL AS SMALLINT) AS SOURCE_DATA_TYPE WHERE false");
 	}
 
 	@Override
 	public boolean supportsResultSetHoldability(int holdability) throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		return holdability == ResultSet.CLOSE_CURSORS_AT_COMMIT;
 	}
 
 	@Override
@@ -974,14 +901,12 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public int getDatabaseMajorVersion() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
+		return 0; // 0.1
 	}
 
 	@Override
 	public int getDatabaseMinorVersion() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
+		return 1; // 0.1
 	}
 
 	@Override
@@ -1001,13 +926,11 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean locatorsUpdateCopy() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean supportsStatementPooling() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
@@ -1027,20 +950,18 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public boolean supportsStoredFunctionsUsingCallSyntax() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public boolean autoCommitFailureClosesAllResultSets() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
 	public ResultSet getClientInfoProperties() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		// not available: an empty result with the columns JDBC defines
+		return query("SELECT CAST(NULL AS VARCHAR) AS NAME, CAST(NULL AS INTEGER) AS MAX_LEN, CAST(NULL AS VARCHAR) AS DEFAULT_VALUE, CAST(NULL AS VARCHAR) AS DESCRIPTION WHERE false");
 	}
 
 	@Override
@@ -1052,20 +973,19 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 	@Override
 	public ResultSet getFunctionColumns(String catalog, String schemaPattern, String functionNamePattern,
 			String columnNamePattern) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		// not available: an empty result with the columns JDBC defines
+		return query("SELECT CAST(NULL AS VARCHAR) AS FUNCTION_CAT, CAST(NULL AS VARCHAR) AS FUNCTION_SCHEM, CAST(NULL AS VARCHAR) AS FUNCTION_NAME, CAST(NULL AS VARCHAR) AS COLUMN_NAME, CAST(NULL AS SMALLINT) AS COLUMN_TYPE, CAST(NULL AS INTEGER) AS DATA_TYPE, CAST(NULL AS VARCHAR) AS TYPE_NAME, CAST(NULL AS INTEGER) AS PRECISION, CAST(NULL AS INTEGER) AS LENGTH, CAST(NULL AS SMALLINT) AS SCALE, CAST(NULL AS SMALLINT) AS RADIX, CAST(NULL AS SMALLINT) AS NULLABLE, CAST(NULL AS VARCHAR) AS REMARKS, CAST(NULL AS INTEGER) AS CHAR_OCTET_LENGTH, CAST(NULL AS INTEGER) AS ORDINAL_POSITION, CAST(NULL AS VARCHAR) AS IS_NULLABLE, CAST(NULL AS VARCHAR) AS SPECIFIC_NAME WHERE false");
 	}
 
 	@Override
 	public ResultSet getPseudoColumns(String catalog, String schemaPattern, String tableNamePattern,
 			String columnNamePattern) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		// not available: an empty result with the columns JDBC defines
+		return query("SELECT CAST(NULL AS VARCHAR) AS TABLE_CAT, CAST(NULL AS VARCHAR) AS TABLE_SCHEM, CAST(NULL AS VARCHAR) AS TABLE_NAME, CAST(NULL AS VARCHAR) AS COLUMN_NAME, CAST(NULL AS INTEGER) AS DATA_TYPE, CAST(NULL AS INTEGER) AS COLUMN_SIZE, CAST(NULL AS INTEGER) AS DECIMAL_DIGITS, CAST(NULL AS INTEGER) AS NUM_PREC_RADIX, CAST(NULL AS VARCHAR) AS COLUMN_USAGE, CAST(NULL AS VARCHAR) AS REMARKS, CAST(NULL AS INTEGER) AS CHAR_OCTET_LENGTH, CAST(NULL AS VARCHAR) AS IS_NULLABLE WHERE false");
 	}
 
 	@Override
 	public boolean generatedKeyAlwaysReturned() throws SQLException {
-		// TODO Auto-generated method stub
 		return false;
 	}
 

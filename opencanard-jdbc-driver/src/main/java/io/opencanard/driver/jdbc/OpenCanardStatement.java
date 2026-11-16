@@ -173,27 +173,27 @@ public class OpenCanardStatement implements Statement {
 
 	@Override
 	public int getMaxFieldSize() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no limit on column sizes
 		return 0;
 	}
 
 	@Override
 	public void setMaxFieldSize(int max) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		if (max < 0) {
+			throw new SQLException("max must be >= 0");
+		}
+		// a hint the server has no use for: column values are never truncated
 	}
 
 	@Override
 	public void setEscapeProcessing(boolean enable) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		// JDBC escape syntax is not translated: SQL is sent to DuckDB as written
 	}
 
 
 	@Override
 	public void setCursorName(String name) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("setCursorName (positioned updates) is not supported by the OpenCanard JDBC driver");
 	}
 
 	@Override

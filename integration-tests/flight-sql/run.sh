@@ -131,6 +131,8 @@ OUT="$(java --add-opens=java.base/java.nio=ALL-UNNAMED -cp "$DRIVER_JAR" io.open
 	jdbc:opencanard://localhost:8815 alice alice-pw "SELECT 4242 AS legacy" 2>&1)"
 echo "$OUT"
 grep -q 4242 <<<"$OUT"
+java --add-opens=java.base/java.nio=ALL-UNNAMED -cp "$DRIVER_JAR" "$HERE/OpenCanardJdbcCheck.java" \
+	jdbc:opencanard://localhost:8815 alice alice-pw
 
 echo "== TLS through an nginx reverse proxy (docs/authentication.md#tls)"
 if ! command -v nginx >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1; then

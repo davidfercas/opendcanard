@@ -236,14 +236,13 @@ public class OpenCanardConnection implements Connection {
 
 	@Override
 	public SQLWarning getWarnings() throws SQLException {
-		// TODO Auto-generated method stub
+		// no warnings are reported
 		return null;
 	}
 
 	@Override
 	public void clearWarnings() throws SQLException {
-		// TODO Auto-generated method stub
-
+		// no warnings are reported
 	}
 
 	@Override
@@ -269,14 +268,16 @@ public class OpenCanardConnection implements Connection {
 
 	@Override
 	public void setTypeMap(Map<String, Class<?>> map) throws SQLException {
-		// TODO Auto-generated method stub
-
+		if (map != null && !map.isEmpty()) {
+			throw new SQLFeatureNotSupportedException("A custom type map is not supported by the OpenCanard JDBC driver");
+		}
 	}
 
 	@Override
 	public void setHoldability(int holdability) throws SQLException {
-		// TODO Auto-generated method stub
-
+		if (holdability != java.sql.ResultSet.CLOSE_CURSORS_AT_COMMIT) {
+			throw new SQLFeatureNotSupportedException("Holdability other than CLOSE_CURSORS_AT_COMMIT is not supported by the OpenCanard JDBC driver");
+		}
 	}
 
 	@Override
@@ -375,19 +376,17 @@ public class OpenCanardConnection implements Connection {
 
 	@Override
 	public void setClientInfo(String name, String value) throws SQLClientInfoException {
-		// TODO Auto-generated method stub
-
+		// client info is not sent to the server; ignored as JDBC allows
 	}
 
 	@Override
 	public void setClientInfo(Properties properties) throws SQLClientInfoException {
-		// TODO Auto-generated method stub
-
+		// client info is not sent to the server; ignored as JDBC allows
 	}
 
 	@Override
 	public String getClientInfo(String name) throws SQLException {
-		// TODO Auto-generated method stub
+		// client info properties are not kept
 		return null;
 	}
 
@@ -413,13 +412,12 @@ public class OpenCanardConnection implements Connection {
 
 	@Override
 	public void setNetworkTimeout(Executor executor, int milliseconds) throws SQLException {
-		// TODO Auto-generated method stub
-
+		throw new SQLFeatureNotSupportedException("setNetworkTimeout is not supported by the OpenCanard JDBC driver");
 	}
 
 	@Override
 	public int getNetworkTimeout() throws SQLException {
-		// TODO Auto-generated method stub
+		// 0: no network timeout
 		return 0;
 	}
 
