@@ -25,7 +25,7 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
     @Override
     public String getDatabaseProductVersion() {
-        return "0.1";
+        return "0.1.0";
     }
 
 	@Override
@@ -94,7 +94,7 @@ public class OpenCanardDatabaseMetaData implements DatabaseMetaData {
 
 	@Override
 	public String getDriverVersion() throws SQLException {
-		return "0.1";
+		return "0.1.0";
 	}
 
 	@Override

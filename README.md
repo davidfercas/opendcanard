@@ -61,7 +61,7 @@ mvn package
 This produces:
 
 - `opencanard-server/target/opencanard.zip` — the server distribution.
-- `opencanard-jdbc-driver/target/opencanard-jdbc-driver-0.1-all.jar` — the JDBC driver.
+- `opencanard-jdbc-driver/target/opencanard-jdbc-driver-0.1.0-all.jar` — the JDBC driver.
 
 ### 2. Start the server
 
@@ -133,6 +133,7 @@ Details are in [docs/clients.md](docs/clients.md).
 - [REST API](docs/rest-api.md) — health, login and management endpoints.
 - [Clients](docs/clients.md) — Flight SQL (ADBC, JDBC) and OpenCanard protocol clients.
 - [Deployment](docs/deployment.md) — systemd service for Red Hat and Docker.
+- [Releasing](docs/releasing.md) — how a version is tagged and published. See also [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

@@ -65,7 +65,7 @@ It copies the jar to `<DBeaver>\plugins`, adds one line to
   (*Help > Show Log*, or `%APPDATA%\DBeaverData\workspace6\.metadata\.log`) for errors mentioning
   `org.opencanard` and send them: the cause is usually the `plugin.xml` format of that DBeaver version.
 - If DBeaver says the driver file is missing, open *Database > Driver Manager > OpenCanard > Libraries*, press
-  *Add File* and pick `opencanard-jdbc-driver-0.1-all.jar` (use the `-all` jar, not the `original-` one).
+  *Add File* and pick `opencanard-jdbc-driver-<version>-all.jar` (use the `-all` jar, not the `original-` one).
 
 Without the plugin you can still connect: create a driver by hand in *Driver Manager > New* with the class and
 URL above. DBeaver does not let a manually created driver have a custom icon, which is why this plugin exists.

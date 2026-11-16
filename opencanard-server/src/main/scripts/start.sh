@@ -29,7 +29,8 @@ else
 fi
 
 # Classpath
-CP="$BASE_DIR/lib/opencanard-server-0.1.jar:$BASE_DIR/lib/external/*"
+# lib/ holds only the server jar (opencanard-server-<version>.jar)
+CP="$BASE_DIR/lib/*:$BASE_DIR/lib/external/*"
 
 # JVM options
 JAVA_OPTS=""
