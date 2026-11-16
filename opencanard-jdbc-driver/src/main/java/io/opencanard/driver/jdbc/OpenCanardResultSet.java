@@ -390,20 +390,18 @@ public class OpenCanardResultSet implements ResultSet {
 
 	@Override
 	public SQLWarning getWarnings() throws SQLException {
-		// TODO Auto-generated method stub
+		// no warnings are reported
 		return null;
 	}
 
 	@Override
 	public void clearWarnings() throws SQLException {
-		// TODO Auto-generated method stub
-		
+		// no warnings are reported
 	}
 
 	@Override
 	public String getCursorName() throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new SQLFeatureNotSupportedException("getCursorName (positioned updates) is not supported by the OpenCanard JDBC driver");
 	}
 
 	@Override
@@ -433,32 +431,27 @@ public class OpenCanardResultSet implements ResultSet {
 
 	@Override
 	public boolean isLast() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		throw new SQLFeatureNotSupportedException("isLast: OpenCanard result sets are forward-only (TYPE_FORWARD_ONLY)");
 	}
 
 	@Override
 	public void beforeFirst() throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("beforeFirst: OpenCanard result sets are forward-only (TYPE_FORWARD_ONLY)");
 	}
 
 	@Override
 	public void afterLast() throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("afterLast: OpenCanard result sets are forward-only (TYPE_FORWARD_ONLY)");
 	}
 
 	@Override
 	public boolean first() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		throw new SQLFeatureNotSupportedException("first: OpenCanard result sets are forward-only (TYPE_FORWARD_ONLY)");
 	}
 
 	@Override
 	public boolean last() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		throw new SQLFeatureNotSupportedException("last: OpenCanard result sets are forward-only (TYPE_FORWARD_ONLY)");
 	}
 
 	@Override
@@ -468,350 +461,300 @@ public class OpenCanardResultSet implements ResultSet {
 
 	@Override
 	public boolean absolute(int row) throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		throw new SQLFeatureNotSupportedException("absolute: OpenCanard result sets are forward-only (TYPE_FORWARD_ONLY)");
 	}
 
 	@Override
 	public boolean relative(int rows) throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		throw new SQLFeatureNotSupportedException("relative: OpenCanard result sets are forward-only (TYPE_FORWARD_ONLY)");
 	}
 
 	@Override
 	public boolean previous() throws SQLException {
-		// TODO Auto-generated method stub
-		return false;
+		throw new SQLFeatureNotSupportedException("previous: OpenCanard result sets are forward-only (TYPE_FORWARD_ONLY)");
 	}
 
 	@Override
 	public void setFetchDirection(int direction) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		if (direction != ResultSet.FETCH_FORWARD) {
+			throw new SQLFeatureNotSupportedException("setFetchDirection: OpenCanard result sets are forward-only (TYPE_FORWARD_ONLY)");
+		}
 	}
 
 	@Override
 	public int getFetchDirection() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
+		return ResultSet.FETCH_FORWARD;
 	}
 
 	@Override
 	public void setFetchSize(int rows) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		if (rows < 0) {
+			throw new SQLException("rows must be >= 0");
+		}
+		// a hint: results arrive in Arrow batches chosen by the server
 	}
 
 	@Override
 	public boolean rowUpdated() throws SQLException {
-		// TODO Auto-generated method stub
+		// read-only result set: rows never change
 		return false;
 	}
 
 	@Override
 	public boolean rowInserted() throws SQLException {
-		// TODO Auto-generated method stub
+		// read-only result set: rows never change
 		return false;
 	}
 
 	@Override
 	public boolean rowDeleted() throws SQLException {
-		// TODO Auto-generated method stub
+		// read-only result set: rows never change
 		return false;
 	}
 
 	@Override
 	public void updateNull(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateNull: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateBoolean(int columnIndex, boolean x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateBoolean: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateByte(int columnIndex, byte x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateByte: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateShort(int columnIndex, short x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateShort: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateInt(int columnIndex, int x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateInt: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateLong(int columnIndex, long x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateLong: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateFloat(int columnIndex, float x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateFloat: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateDouble(int columnIndex, double x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateDouble: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateBigDecimal(int columnIndex, BigDecimal x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateBigDecimal: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateString(int columnIndex, String x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateString: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateBytes(int columnIndex, byte[] x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateBytes: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateDate(int columnIndex, Date x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateDate: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateTime(int columnIndex, Time x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateTime: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateTimestamp(int columnIndex, Timestamp x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateTimestamp: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateAsciiStream(int columnIndex, InputStream x, int length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateAsciiStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateBinaryStream(int columnIndex, InputStream x, int length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateBinaryStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateCharacterStream(int columnIndex, Reader x, int length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateCharacterStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateObject(int columnIndex, Object x, int scaleOrLength) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateObject: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateObject(int columnIndex, Object x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateObject: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateNull(String columnLabel) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateNull: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateBoolean(String columnLabel, boolean x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateBoolean: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateByte(String columnLabel, byte x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateByte: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateShort(String columnLabel, short x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateShort: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateInt(String columnLabel, int x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateInt: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateLong(String columnLabel, long x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateLong: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateFloat(String columnLabel, float x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateFloat: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateDouble(String columnLabel, double x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateDouble: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateBigDecimal(String columnLabel, BigDecimal x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateBigDecimal: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateString(String columnLabel, String x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateString: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateBytes(String columnLabel, byte[] x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateBytes: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateDate(String columnLabel, Date x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateDate: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateTime(String columnLabel, Time x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateTime: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateTimestamp(String columnLabel, Timestamp x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateTimestamp: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateAsciiStream(String columnLabel, InputStream x, int length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateAsciiStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateBinaryStream(String columnLabel, InputStream x, int length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateBinaryStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateCharacterStream(String columnLabel, Reader reader, int length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateCharacterStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateObject(String columnLabel, Object x, int scaleOrLength) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateObject: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateObject(String columnLabel, Object x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateObject: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void insertRow() throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("insertRow: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateRow() throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateRow: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void deleteRow() throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("deleteRow: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void refreshRow() throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("refreshRow: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void cancelRowUpdates() throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("cancelRowUpdates: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void moveToInsertRow() throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("moveToInsertRow: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void moveToCurrentRow() throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("moveToCurrentRow: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public Ref getRef(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new SQLFeatureNotSupportedException("getRef is not supported by the OpenCanard JDBC driver");
 	}
 
 	@Override
 	public Blob getBlob(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new SQLFeatureNotSupportedException("getBlob is not supported by the OpenCanard JDBC driver");
 	}
 
 	@Override
 	public Clob getClob(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new SQLFeatureNotSupportedException("getClob is not supported by the OpenCanard JDBC driver");
 	}
 
 	@Override
 	public Array getArray(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new SQLFeatureNotSupportedException("getArray is not supported by the OpenCanard JDBC driver");
 	}
 
 	@Override
@@ -821,26 +764,22 @@ public class OpenCanardResultSet implements ResultSet {
 
 	@Override
 	public Ref getRef(String columnLabel) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new SQLFeatureNotSupportedException("getRef is not supported by the OpenCanard JDBC driver");
 	}
 
 	@Override
 	public Blob getBlob(String columnLabel) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new SQLFeatureNotSupportedException("getBlob is not supported by the OpenCanard JDBC driver");
 	}
 
 	@Override
 	public Clob getClob(String columnLabel) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new SQLFeatureNotSupportedException("getClob is not supported by the OpenCanard JDBC driver");
 	}
 
 	@Override
 	public Array getArray(String columnLabel) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new SQLFeatureNotSupportedException("getArray is not supported by the OpenCanard JDBC driver");
 	}
 
 	@Override
@@ -865,140 +804,117 @@ public class OpenCanardResultSet implements ResultSet {
 
 	@Override
 	public void updateRef(int columnIndex, Ref x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateRef: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateRef(String columnLabel, Ref x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateRef: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateBlob(int columnIndex, Blob x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateBlob: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateBlob(String columnLabel, Blob x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateBlob: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateClob(int columnIndex, Clob x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateClob: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateClob(String columnLabel, Clob x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateClob: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateArray(int columnIndex, Array x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateArray: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateArray(String columnLabel, Array x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateArray: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public RowId getRowId(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new SQLFeatureNotSupportedException("getRowId is not supported by the OpenCanard JDBC driver");
 	}
 
 	@Override
 	public RowId getRowId(String columnLabel) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new SQLFeatureNotSupportedException("getRowId is not supported by the OpenCanard JDBC driver");
 	}
 
 	@Override
 	public void updateRowId(int columnIndex, RowId x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateRowId: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateRowId(String columnLabel, RowId x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateRowId: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public int getHoldability() throws SQLException {
-		// TODO Auto-generated method stub
-		return 0;
+		return ResultSet.CLOSE_CURSORS_AT_COMMIT;
 	}
 
 	@Override
 	public void updateNString(int columnIndex, String nString) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateNString: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateNString(String columnLabel, String nString) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateNString: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateNClob(int columnIndex, NClob nClob) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateNClob: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateNClob(String columnLabel, NClob nClob) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateNClob: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public NClob getNClob(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new SQLFeatureNotSupportedException("getNClob is not supported by the OpenCanard JDBC driver");
 	}
 
 	@Override
 	public NClob getNClob(String columnLabel) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new SQLFeatureNotSupportedException("getNClob is not supported by the OpenCanard JDBC driver");
 	}
 
 	@Override
 	public SQLXML getSQLXML(int columnIndex) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new SQLFeatureNotSupportedException("getSQLXML is not supported by the OpenCanard JDBC driver");
 	}
 
 	@Override
 	public SQLXML getSQLXML(String columnLabel) throws SQLException {
-		// TODO Auto-generated method stub
-		return null;
+		throw new SQLFeatureNotSupportedException("getSQLXML is not supported by the OpenCanard JDBC driver");
 	}
 
 	@Override
 	public void updateSQLXML(int columnIndex, SQLXML xmlObject) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateSQLXML: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateSQLXML(String columnLabel, SQLXML xmlObject) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateSQLXML: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
@@ -1013,170 +929,142 @@ public class OpenCanardResultSet implements ResultSet {
 
 	@Override
 	public void updateNCharacterStream(int columnIndex, Reader x, long length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateNCharacterStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateNCharacterStream(String columnLabel, Reader reader, long length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateNCharacterStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateAsciiStream(int columnIndex, InputStream x, long length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateAsciiStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateBinaryStream(int columnIndex, InputStream x, long length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateBinaryStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateCharacterStream(int columnIndex, Reader x, long length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateCharacterStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateAsciiStream(String columnLabel, InputStream x, long length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateAsciiStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateBinaryStream(String columnLabel, InputStream x, long length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateBinaryStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateCharacterStream(String columnLabel, Reader reader, long length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateCharacterStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateBlob(int columnIndex, InputStream inputStream, long length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateBlob: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateBlob(String columnLabel, InputStream inputStream, long length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateBlob: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateClob(int columnIndex, Reader reader, long length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateClob: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateClob(String columnLabel, Reader reader, long length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateClob: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateNClob(int columnIndex, Reader reader, long length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateNClob: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateNClob(String columnLabel, Reader reader, long length) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateNClob: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateNCharacterStream(int columnIndex, Reader x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateNCharacterStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateNCharacterStream(String columnLabel, Reader reader) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateNCharacterStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateAsciiStream(int columnIndex, InputStream x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateAsciiStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateBinaryStream(int columnIndex, InputStream x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateBinaryStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateCharacterStream(int columnIndex, Reader x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateCharacterStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateAsciiStream(String columnLabel, InputStream x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateAsciiStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateBinaryStream(String columnLabel, InputStream x) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateBinaryStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateCharacterStream(String columnLabel, Reader reader) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateCharacterStream: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateBlob(int columnIndex, InputStream inputStream) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateBlob: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateBlob(String columnLabel, InputStream inputStream) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateBlob: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateClob(int columnIndex, Reader reader) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateClob: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateClob(String columnLabel, Reader reader) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateClob: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateNClob(int columnIndex, Reader reader) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateNClob: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
 	public void updateNClob(String columnLabel, Reader reader) throws SQLException {
-		// TODO Auto-generated method stub
-		
+		throw new SQLFeatureNotSupportedException("updateNClob: OpenCanard result sets are read-only (CONCUR_READ_ONLY)");
 	}
 
 	@Override
