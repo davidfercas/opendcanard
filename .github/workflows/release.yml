@@ -9,7 +9,6 @@ name: Release
 on:
   push:
     tags: ['v*']
-    branches: [feature/release-workflow]   # TEMPORARY: dry run of this branch, removed before merging
   workflow_dispatch:
 
 permissions:
