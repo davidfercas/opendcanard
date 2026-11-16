@@ -92,10 +92,11 @@ defined by the server (`io.opencanard.user.Privileges`); today it has one:
 
 ### Creating users
 
-An admin can create users through the REST API, see [Creating a user](rest-api.md#creating-a-user). Each
+An admin creates users in the web console (**Administration → Users**) or through the REST API, see
+[Creating a user](rest-api.md#creating-a-user). Each
 user created that way also gets a personal database registered in `opencanard_databases`, see
 [Per-user databases](#per-user-databases).
-The sections below describe the first admin and manual creation.
+The sections below describe the first admin, and how to create users in SQL if you ever need to.
 
 The first time the server starts without a `metadata/metadata.duckdb` file, it creates the file, the
 table below and one admin user taken from `admin.user` / `admin.password` (the password is stored as a
@@ -294,7 +295,5 @@ These are tracked here so they are not mistaken for features:
 
 1. Flight bearer tokens are kept in memory; they are not shared between servers and do not survive a restart.
 2. No native TLS on either port: use a reverse proxy, see [TLS](#tls) (#10).
-4. `POST /management/shutdown` only requires an authenticated user, not the `admin` role.
-5. Read-only is opt-in: only users with the privilege [`READ_ONLY`](#privileges) are limited, and even they can still
+3. Read-only is opt-in: only users with the privilege [`READ_ONLY`](#privileges) are limited, and even they can still
    write files with `COPY ... TO` and DuckDB keeps its access to the file system and the network (#13).
-6. Only the first admin is created automatically; further users must be added by hand in the metadata database.

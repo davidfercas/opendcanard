@@ -110,9 +110,19 @@ chmod 0750 "$INSTALL_DIR/conf" "$INSTALL_DIR/data" "$INSTALL_DIR/metadata"
 # --- 4. systemd unit and sysconfig ------------------------------------------
 install -m 0644 "$SCRIPT_DIR/opencanard.service" "$UNIT_FILE"
 
+ADMIN_PASSWORD_CREATED=""
 if [ ! -f "$SYSCONFIG_FILE" ]; then
-    cat > "$SYSCONFIG_FILE" <<'EOF'
+    # random first-admin password, printed once at the end
+    ADMIN_PASSWORD_CREATED="$(head -c 18 /dev/urandom | base64 | tr -d '/+=')"
+    (umask 077; cat > "$SYSCONFIG_FILE" <<EOF
 # Environment for the opencanard systemd service
+# Admin user (required on every start): created when the metadata database does not exist yet.
+# Changing these later does not change the stored user (see docs/authentication.md).
+OPENCANARD_ADMIN_USER=admin
+OPENCANARD_ADMIN_PASSWORD=$ADMIN_PASSWORD_CREATED
+EOF
+    )
+    cat >> "$SYSCONFIG_FILE" <<'EOF'
 # Heap size of the JVM
 #OPENCANARD_XMS=512m
 #OPENCANARD_XMX=2g
@@ -121,7 +131,11 @@ if [ ! -f "$SYSCONFIG_FILE" ]; then
 # Use a specific JDK instead of the one on the PATH
 #JAVA_HOME=/usr/lib/jvm/java-17-openjdk
 EOF
-    chmod 0644 "$SYSCONFIG_FILE"
+    # holds the admin password
+    chmod 0600 "$SYSCONFIG_FILE"
+elif ! grep -q '^OPENCANARD_ADMIN_USER=' "$SYSCONFIG_FILE" || ! grep -q '^OPENCANARD_ADMIN_PASSWORD=' "$SYSCONFIG_FILE"; then
+    echo "WARNING: $SYSCONFIG_FILE has no OPENCANARD_ADMIN_USER / OPENCANARD_ADMIN_PASSWORD; the service" >&2
+    echo "         will not start without them. Add them (chmod 0600 the file, it holds a password)." >&2
 fi
 
 # SELinux: make sure the files carry the right labels (no-op if SELinux is off)
@@ -147,9 +161,14 @@ OpenCanard installed in $INSTALL_DIR
   JVM opts: $SYSCONFIG_FILE
 
 Next steps:
-  * Create the users table and the first administrator (see docs/authentication.md).
+  * Sign in to http://<host>:8084/opencanard-console/ as the admin user (credentials in
+    $SYSCONFIG_FILE) and create the users there.
   * Ports 8815 (Arrow Flight) and 8084 (REST) are NOT opened in the firewall. OpenCanard has
     no native TLS: put a reverse proxy in front (docs/authentication.md#tls), or only open them
     to trusted networks, for example:
       firewall-cmd --permanent --add-port=8815/tcp --add-port=8084/tcp && firewall-cmd --reload
 EOF
+
+if [ -n "$ADMIN_PASSWORD_CREATED" ]; then
+    echo "First admin: user 'admin', password '$ADMIN_PASSWORD_CREATED' (stored in $SYSCONFIG_FILE)."
+fi

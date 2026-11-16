@@ -41,6 +41,11 @@ JAVA_OPTS="$JAVA_OPTS -Dlog.dir=$BASE_DIR/logs"
 # and falls back to its default, which only prints ERROR to the console.
 JAVA_OPTS="$JAVA_OPTS -Dlog4j.configurationFile=$BASE_DIR/conf/log4j2.xml"
 
+if [ -z "$OPENCANARD_ADMIN_USER" ] || [ -z "$OPENCANARD_ADMIN_PASSWORD" ]; then
+    echo "OPENCANARD_ADMIN_USER and OPENCANARD_ADMIN_PASSWORD must be set (see docs/configuration.md)" >&2
+    exit 1
+fi
+
 # Admin credentials (kept in an array so spaces/special characters in the password survive)
 ADMIN_OPTS=("-Dadmin.user=$OPENCANARD_ADMIN_USER" "-Dadmin.password=$OPENCANARD_ADMIN_PASSWORD")
 
