@@ -10,8 +10,9 @@ The Flight port (`8815`) speaks two protocols at once:
 
 The server tells them apart by the request itself, so there is nothing to configure. Every example assumes a
 server on `localhost:8815` and a user created as described in
-[Authentication and security](authentication.md#creating-users). The Flight port does not use TLS yet,
-so credentials are sent unencrypted; use a trusted network.
+[Authentication and security](authentication.md#creating-users). The examples connect without TLS;
+in production put a TLS reverse proxy in front and use the TLS URLs listed in
+[TLS](authentication.md#tls).
 
 Whatever the client, each user works on their own database: admins on the metadata database, every other
 user on the DuckDB file registered for them (see [Per-user databases](authentication.md#per-user-databases)).
@@ -61,7 +62,8 @@ list, or add the jar as a custom driver).
 | URL | `jdbc:arrow-flight-sql://localhost:8815/?useEncryption=false` |
 | `user` / `password` | OpenCanard user name and password |
 
-`useEncryption=false` is required while the Flight port has no TLS. Unlike the bundled driver, this one
+`useEncryption=false` connects to the server directly; `useEncryption=true` connects through a TLS reverse proxy
+(see [TLS](authentication.md#tls)). Unlike the bundled driver, this one
 supports prepared statements with parameters, updates, and the `DatabaseMetaData` calls BI tools use to browse
 catalogs, schemas, tables, columns and primary keys. On JVMs 16 and later, start the client with
 `--add-opens=java.base/java.nio=ALL-UNNAMED`, as for any Arrow Java code.
@@ -134,6 +136,11 @@ driver remains for existing setups. Build the project (`mvn package`) and use th
 | URL | `jdbc:opencanard://<host>[:<port>]` (port defaults to `8815`; IPv6 hosts go in brackets, e.g. `jdbc:opencanard://[::1]:8815`) |
 | `user` | OpenCanard username |
 | `password` | OpenCanard password |
+| `useEncryption` | `true` to connect with TLS, through a reverse proxy (see [TLS](authentication.md#tls)). Default `false`. |
+| `tlsRootCerts` | With `useEncryption=true`: PEM file with the CA to trust, for a private CA. Default: the JVM trust store. |
+| `disableCertificateVerification` | With `useEncryption=true`: `true` skips the certificate check. Tests only. |
+
+The options are connection properties or URL parameters: `jdbc:opencanard://host:8816/?useEncryption=true`.
 
 The jar does not include a `META-INF/services` registration for `java.sql.Driver`, so tools that
 discover drivers automatically may not find it. Configure the driver class explicitly, or load it

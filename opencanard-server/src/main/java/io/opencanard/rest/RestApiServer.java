@@ -24,10 +24,16 @@ public class RestApiServer implements AutoCloseable {
 	private static final Logger logger = LogManager.getLogger(RestApiServer.class);
 
 	private final Javalin app;
+	private final String host;
 	private final int port;
 
+	/**
+	 * @param host interface to listen on ({@code opencanard.rest.host}, else {@code opencanard.host}); {@code null}
+	 *             or {@code 0.0.0.0} listens on all of them
+	 */
 	public RestApiServer(Connection duckdb, Connection metadatadb, UserService userService, UserConnections userConnections,
-			StorageService storageService, RunningQueries runningQueries, int port) {
+			StorageService storageService, RunningQueries runningQueries, String host, int port) {
+		this.host = host == null || host.isBlank() ? "0.0.0.0" : host.trim();
 		this.port = port;
 
 		OpenCanardApiController controller = new OpenCanardApiController(duckdb, metadatadb, userService);
@@ -84,8 +90,8 @@ public class RestApiServer implements AutoCloseable {
 	}
 
 	public void start() {
-		app.start(port);
-		logger.info("REST API started on port {} (web console at /opencanard-console/, Swagger UI at /swagger, OpenAPI document at /openapi)", port);
+		app.start(host, port);
+		logger.info("REST API started on {}:{} (web console at /opencanard-console/, Swagger UI at /swagger, OpenAPI document at /openapi)", host, port);
 		System.out.println("REST API started at http://localhost:" + port);
 	}
 

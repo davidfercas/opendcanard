@@ -3,9 +3,8 @@
 Two ways to run OpenCanard as a long-lived service: a systemd service on Red Hat family distributions,
 or a Docker container.
 
-> This version has **no TLS** and the Flight port does not validate tokens properly yet. Do not publish
-> ports `8815` and `8084` to networks you do not trust. See
-> [Authentication and security](authentication.md).
+> OpenCanard has **no native TLS**. Do not publish ports `8815` and `8084` to networks you do not trust:
+> put a TLS-terminating reverse proxy in front of them, see [TLS](authentication.md#tls).
 
 Both options need the same first step after the server is up: create the users table and an
 administrator, as described in [Authentication and security](authentication.md#creating-users).

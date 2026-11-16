@@ -5,6 +5,7 @@
 #
 # Needs: `mvn package` done, Java 17+, Python 3 with
 #   pip install adbc-driver-flightsql adbc-driver-manager pyarrow pytest
+# and, for the TLS reverse-proxy test (skipped when missing), nginx and openssl.
 # Ports 8815 (Flight) and 8084 (REST) must be free.
 set -euo pipefail
 
@@ -130,5 +131,93 @@ OUT="$(java --add-opens=java.base/java.nio=ALL-UNNAMED -cp "$DRIVER_JAR" io.open
 	jdbc:opencanard://localhost:8815 alice alice-pw "SELECT 4242 AS legacy" 2>&1)"
 echo "$OUT"
 grep -q 4242 <<<"$OUT"
+
+echo "== TLS through an nginx reverse proxy (docs/authentication.md#tls)"
+if ! command -v nginx >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1; then
+	if [ "${OC_REQUIRE_TLS_TEST:-0}" = 1 ]; then
+		echo "nginx and openssl are required for the TLS test" >&2
+		exit 1
+	fi
+	echo "nginx or openssl not installed: TLS test skipped"
+else
+	NG="$WORK/nginx"
+	mkdir -p "$NG/logs" "$NG/tmp"
+	openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=localhost \
+		-addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
+		-keyout "$NG/key.pem" -out "$NG/cert.pem" 2>/dev/null
+	cat >"$NG/nginx.conf" <<NGINX
+pid $NG/nginx.pid;
+error_log $NG/logs/error.log;
+events {}
+http {
+    access_log $NG/logs/access.log;
+    client_body_temp_path $NG/tmp/body;
+    proxy_temp_path $NG/tmp/proxy;
+    fastcgi_temp_path $NG/tmp/fastcgi;
+    uwsgi_temp_path $NG/tmp/uwsgi;
+    scgi_temp_path $NG/tmp/scgi;
+    server {
+        listen 127.0.0.1:8816 ssl http2;
+        ssl_certificate $NG/cert.pem;
+        ssl_certificate_key $NG/key.pem;
+        client_max_body_size 0;
+        grpc_read_timeout 1h;
+        grpc_send_timeout 1h;
+        location / { grpc_pass grpc://127.0.0.1:8815; }
+    }
+    server {
+        listen 127.0.0.1:8443 ssl;
+        ssl_certificate $NG/cert.pem;
+        ssl_certificate_key $NG/key.pem;
+        location / {
+            proxy_pass http://127.0.0.1:8084;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Forwarded-Proto https;
+        }
+    }
+}
+NGINX
+	nginx -p "$NG" -c "$NG/nginx.conf"
+	trap 'nginx -p "$NG" -c "$NG/nginx.conf" -s stop 2>/dev/null || true; cleanup' EXIT
+	sleep 1
+
+	# REST API and console over HTTPS
+	curl -sf --cacert "$NG/cert.pem" -o /dev/null https://localhost:8443/opencanard-console/
+	test "$(curl -s -o /dev/null -w '%{http_code}' --cacert "$NG/cert.pem" -X POST https://localhost:8443/api/login \
+		"${JSON[@]}" -d '{"username":"alice","password":"alice-pw"}')" = 200
+
+	# ADBC Flight SQL over gRPC+TLS, trusting the self-signed certificate
+	OC_TLS_CERT="$NG/cert.pem" python3 - <<'PY'
+import os
+import adbc_driver_flightsql.dbapi as flight_sql
+pem = open(os.environ["OC_TLS_CERT"]).read()
+with flight_sql.connect("grpc+tls://localhost:8816", autocommit=True,
+                        db_kwargs={"username": "alice", "password": "alice-pw",
+                                   "adbc.flight.sql.client_option.tls_root_certs": pem}) as conn:
+    with conn.cursor() as cur:
+        cur.execute("SELECT 8816 AS tls")
+        assert cur.fetch_arrow_table().column("tls").to_pylist() == [8816]
+# without trusting the certificate the connection must fail
+try:
+    with flight_sql.connect("grpc+tls://localhost:8816", autocommit=True,
+                            db_kwargs={"username": "alice", "password": "alice-pw"}) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+    raise SystemExit("an untrusted certificate was accepted")
+except SystemExit:
+    raise
+except Exception:
+    pass
+print("ADBC over TLS: ok")
+PY
+
+	# OpenCanard JDBC driver over TLS
+	OUT="$(java --add-opens=java.base/java.nio=ALL-UNNAMED -cp "$DRIVER_JAR" io.opencanard.driver.jdbc.OpenCanardJdbcClient \
+		"jdbc:opencanard://localhost:8816/?useEncryption=true&tlsRootCerts=$NG/cert.pem" alice alice-pw \
+		"SELECT 4343 AS tls" 2>&1)"
+	echo "$OUT"
+	grep -q 4343 <<<"$OUT"
+	echo "TLS checks passed"
+fi
 
 echo "All Flight SQL integration tests passed"

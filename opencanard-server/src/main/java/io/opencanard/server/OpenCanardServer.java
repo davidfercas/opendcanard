@@ -230,7 +230,7 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		this.flightSql = new OpenCanardFlightSqlProducer(this.userConnections, this.runningQueries, this.allocator,
 				serverVersion());
 		this.restApi = new RestApiServer(this.duckdb, this.metadatadb, userService, this.userConnections,
-				storageService, this.runningQueries, Config.getInt("opencanard.rest.port"));
+				storageService, this.runningQueries, restHost(), Config.getInt("opencanard.rest.port"));
 	}
 
 	/**
@@ -480,6 +480,12 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 				return rs.next() && rs.getInt(1) > 0;
 			}
 		}
+	}
+
+	/** {@code opencanard.rest.host}, or {@code opencanard.host} when it is not set. */
+	private static String restHost() {
+		String host = Config.get("opencanard.rest.host");
+		return host == null || host.isBlank() ? Config.get("opencanard.host") : host;
 	}
 
 	public void start() throws Exception {

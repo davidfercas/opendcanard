@@ -27,9 +27,10 @@ installation directory themselves.
 
 | Property | Default | Effect |
 | --- | --- | --- |
-| `opencanard.host` | `0.0.0.0` | Interface the Arrow Flight server binds to. |
+| `opencanard.host` | `0.0.0.0` | Interface the Arrow Flight server and the REST API bind to. `127.0.0.1` behind a reverse proxy on the same host, see [TLS](authentication.md#tls). |
 | `opencanard.port` | `8815` | Arrow Flight (gRPC) port. |
 | `opencanard.rest.port` | `8084` | REST API port. |
+| `opencanard.rest.host` | *(`opencanard.host`)* | Interface of the REST API, when it must differ from the Flight one. |
 | `opencanard.db` | `opencanard.duckdb` | File name of the analytics database, inside `data/`. |
 | `metadatadb.db` | `metadata.duckdb` | File name of the metadata database, inside `metadata/`. |
 | `arrow.memory.mb` | `512` | Upper limit, in MB, of the Arrow memory allocator. |
@@ -38,15 +39,9 @@ installation directory themselves.
 | `jwt.expiry.minutes` | `60` | Lifetime of a JWT, in minutes. |
 | `console.history.size` | `10` | Past queries kept per user in the web console's **History** (0 turns it off, at most 100). |
 
-These properties are present in the sample file but **are not read by the server yet**:
-
-| Property | Note |
-| --- | --- |
-| `tls.enabled`, `tls.certFile`, `tls.keyFile` | The Flight server always starts without TLS. See [Authentication and security](authentication.md#tls). |
-| `log.level`, `log.file` | Logging is configured only in `conf/log4j2.xml`. |
-
-`arrow.memory.mb` appears twice in the sample file; the value is the same in both places, so the
-duplicate can be deleted.
+Logging is configured in `conf/log4j2.xml`. There are no TLS properties: TLS is provided by a reverse proxy,
+see [TLS](authentication.md#tls). Configuration files of earlier versions may still contain `tls.enabled`,
+`tls.certFile`, `tls.keyFile`, `log.level` and `log.file`; the server never read them, and they can be deleted.
 
 ## System properties
 

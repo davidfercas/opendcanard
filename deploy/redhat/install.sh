@@ -148,7 +148,8 @@ OpenCanard installed in $INSTALL_DIR
 
 Next steps:
   * Create the users table and the first administrator (see docs/authentication.md).
-  * Ports 8815 (Arrow Flight) and 8084 (REST) are NOT opened in the firewall. This version has
-    no TLS, so only open them to trusted networks, for example:
+  * Ports 8815 (Arrow Flight) and 8084 (REST) are NOT opened in the firewall. OpenCanard has
+    no native TLS: put a reverse proxy in front (docs/authentication.md#tls), or only open them
+    to trusted networks, for example:
       firewall-cmd --permanent --add-port=8815/tcp --add-port=8084/tcp && firewall-cmd --reload
 EOF

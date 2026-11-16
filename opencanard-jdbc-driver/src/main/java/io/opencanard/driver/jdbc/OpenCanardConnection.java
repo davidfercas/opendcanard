@@ -95,9 +95,22 @@ public class OpenCanardConnection implements Connection {
 			long start = System.nanoTime();
 			newAllocator = new RootAllocator(Long.MAX_VALUE);
 			DriverDiagnostics.debug("Arrow allocator created");
-			Location location = Location.forGrpcInsecure(host, port);
-			DriverDiagnostics.debug("Building the Flight client (this loads gRPC and Netty)...");
-			FlightClient newClient = FlightClient.builder(newAllocator, location).build();
+			boolean tls = Boolean.parseBoolean(option("useEncryption", props, url));
+			Location location = tls ? Location.forGrpcTls(host, port) : Location.forGrpcInsecure(host, port);
+			DriverDiagnostics.debug("Building the Flight client (this loads gRPC and Netty), TLS={}...", tls);
+			FlightClient.Builder builder = FlightClient.builder(newAllocator, location);
+			if (tls) {
+				// default: the JVM trust store; tlsRootCerts: a PEM file with the CA (self-signed setups)
+				String rootCerts = option("tlsRootCerts", props, url);
+				if (rootCerts != null && !rootCerts.isBlank()) {
+					builder.trustedCertificates(new java.io.ByteArrayInputStream(
+							java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(rootCerts))));
+				}
+				if (Boolean.parseBoolean(option("disableCertificateVerification", props, url))) {
+					builder.verifyServer(false);
+				}
+			}
+			FlightClient newClient = builder.build();
 			this.allocator = newAllocator;
 			this.client = newClient;
 			DriverDiagnostics.debug("Flight client ready in {} ms", (System.nanoTime() - start) / 1_000_000);
@@ -113,6 +126,30 @@ public class OpenCanardConnection implements Connection {
 			}
 			throw DriverDiagnostics.connectFailure(t, host, port);
 		}
+	}
+
+	/**
+	 * A connection option: the connection property {@code name}, else {@code name=value} in the URL query
+	 * ({@code jdbc:opencanard://host:port/?useEncryption=true}), else {@code null}.
+	 */
+	static String option(String name, java.util.Properties props, String url) {
+		String value = props == null ? null : props.getProperty(name);
+		if (value != null) {
+			return value;
+		}
+		int query = url == null ? -1 : url.indexOf('?');
+		if (query < 0) {
+			return null;
+		}
+		for (String pair : url.substring(query + 1).split("&")) {
+			int eq = pair.indexOf('=');
+			String key = eq < 0 ? pair : pair.substring(0, eq);
+			if (key.equals(name)) {
+				return java.net.URLDecoder.decode(eq < 0 ? "true" : pair.substring(eq + 1),
+						java.nio.charset.StandardCharsets.UTF_8);
+			}
+		}
+		return null;
 	}
 
 	@Override

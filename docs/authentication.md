@@ -9,7 +9,7 @@
 | --- | --- |
 | Flight port (`8815`) — `Basic` credentials | Checked against the users table (bcrypt). |
 | Flight port — `Bearer` token | The token issued after a successful `Basic` call, or the JWT of the REST login (signature, issuer, subject and expiry verified). Anything else is refused, and so is any token of a user that no longer exists. |
-| Flight port — transport | **Plaintext gRPC.** No TLS. |
+| Flight port — transport | **Plaintext gRPC.** Put a TLS-terminating reverse proxy in front, see [TLS](#tls). |
 | REST API (`8084`) | Login returns a signed JWT; `/management/*` requires credentials or a JWT. Plain HTTP. |
 | Query restrictions | Users with the privilege [`READ_ONLY`](#privileges) get a read-only database. Everyone else runs SQL as-is on a read-write DuckDB connection; there is no sandbox (#13). |
 | JWT signing secret | Random per installation (`metadata/jwt.key`), or set with `OPENCANARD_JWT_SECRET` / `jwt.secret`. See [JWT signing key](#jwt-signing-key). |
@@ -194,12 +194,71 @@ statement the DuckDB connection allows, including statements that modify data, u
 
 ## TLS
 
-The sample configuration contains `tls.enabled=true`, `tls.certFile` and `tls.keyFile`, but **these
-settings are not read by the server**. The Flight server is created with an insecure gRPC location and
-the REST API uses plain HTTP, so credentials and query results travel unencrypted.
+OpenCanard itself speaks plain gRPC on the Flight port and plain HTTP on the REST port: credentials and query
+results are not encrypted between the client and the server. Native TLS is tracked in #10. Until then, the
+supported setup is a **reverse proxy that terminates TLS** in front of both ports, with OpenCanard listening only
+on the loopback interface:
 
-To protect traffic today, terminate TLS in front of OpenCanard (for example a reverse proxy for the
-REST API, or a VPN / private network for the Flight port).
+```properties
+# conf/opencanard.properties: both ports only reachable from the proxy on the same host
+opencanard.host=127.0.0.1
+```
+
+With nginx (1.13.10 or later, for `grpc_pass`), one TLS port for Flight and one for the console and REST API:
+
+```nginx
+# Arrow Flight / Flight SQL: gRPC over TLS (HTTP/2) on 8816
+server {
+    listen 8816 ssl http2;            # nginx 1.25.1+: "listen 8816 ssl;" plus "http2 on;"
+    server_name opencanard.example.com;
+    ssl_certificate     /etc/ssl/opencanard/fullchain.pem;
+    ssl_certificate_key /etc/ssl/opencanard/privkey.pem;
+
+    client_max_body_size 0;           # no limit on uploads (DoPut, bulk ingest)
+    grpc_read_timeout 1h;             # long-running queries and large results
+    grpc_send_timeout 1h;
+
+    location / {
+        grpc_pass grpc://127.0.0.1:8815;
+    }
+}
+
+# Web console and REST API: HTTPS on 443
+server {
+    listen 443 ssl;
+    server_name opencanard.example.com;
+    ssl_certificate     /etc/ssl/opencanard/fullchain.pem;
+    ssl_certificate_key /etc/ssl/opencanard/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8084;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 1h;
+    }
+}
+```
+
+Any proxy that forwards gRPC (HTTP/2 to the backend) works the same way for the Flight port, for example Envoy,
+Traefik or HAProxy; Caddy's `reverse_proxy h2c://127.0.0.1:8815` does too. A proxy that only speaks HTTP/1.1 to
+the backend does not.
+
+Clients then connect with TLS to the proxy:
+
+| Client | Connection |
+| --- | --- |
+| ADBC (Python) | `grpc+tls://opencanard.example.com:8816`. For a private CA, pass its PEM in `db_kwargs={"adbc.flight.sql.client_option.tls_root_certs": pem}`. |
+| PyArrow Flight | `flight.FlightClient("grpc+tls://opencanard.example.com:8816")`, or with `tls_root_certs=pem`. |
+| Arrow Flight SQL JDBC | `jdbc:arrow-flight-sql://opencanard.example.com:8816/?useEncryption=true` (the JVM trust store by default; `tlsRootCerts=/path/ca.pem` for a private CA). |
+| OpenCanard JDBC / DBeaver | `jdbc:opencanard://opencanard.example.com:8816/?useEncryption=true`, with the same `tlsRootCerts=/path/ca.pem` option. |
+| Web console, REST API | `https://opencanard.example.com/opencanard-console/` |
+
+`disableCertificateVerification=true` exists in both JDBC drivers for tests; do not use it in production. The
+integration tests check this setup: they put nginx with a self-signed certificate in front of the server and run
+queries through it with ADBC and the OpenCanard JDBC driver.
+
+When the proxy runs on another host, keep `opencanard.host=0.0.0.0` and use the firewall so that only the proxy
+reaches ports 8815 and 8084. `opencanard.rest.host` sets the REST interface separately when needed.
 
 ## REST API authentication
 
@@ -234,7 +293,7 @@ same `OPENCANARD_JWT_SECRET`.
 These are tracked here so they are not mistaken for features:
 
 1. Flight bearer tokens are kept in memory; they are not shared between servers and do not survive a restart.
-2. No TLS on either port; the `tls.*` properties are ignored.
+2. No native TLS on either port: use a reverse proxy, see [TLS](#tls) (#10).
 4. `POST /management/shutdown` only requires an authenticated user, not the `admin` role.
 5. Read-only is opt-in: only users with the privilege [`READ_ONLY`](#privileges) are limited, and even they can still
    write files with `COPY ... TO` and DuckDB keeps its access to the file system and the network (#13).
