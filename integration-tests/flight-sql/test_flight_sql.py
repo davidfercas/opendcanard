@@ -465,7 +465,9 @@ def test_user_queries_cannot_reach_the_file_system(alice, name, sql):
     with pytest.raises(adbc_driver_manager.Error) as error:
         query(alice, sql)
     message = str(error.value).lower()
-    assert "disabled" in message or "permission" in message, message
+    # ATTACH of a file the server already has open (the metadata database, another user's open database) is refused
+    # by DuckDB before the sandbox is asked, with "unique file handle conflict ... is already attached"
+    assert "disabled" in message or "permission" in message or "already attached" in message, message
 
 
 @pytest.mark.parametrize("sql", SANDBOX_ESCAPES)
