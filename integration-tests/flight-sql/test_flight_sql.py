@@ -420,3 +420,113 @@ def test_privilege_errors():
     assert rest_status("PUT", "/management/users/nobody/privileges/READ_ONLY", ADMIN) == 404
     assert rest_status("PUT", "/management/roles/nothing/privileges/READ_ONLY", ADMIN) == 404
     assert rest_status("PUT", "/management/users/alice/privileges/READ_ONLY", BOB) == 403
+
+
+# ---------- DuckDB sandbox for user queries (issue #24) ----------
+
+# run.sh passes the server directory, so the tests can try absolute paths too
+SERVER_DIR = os.environ.get("OC_SERVER_DIR", "")
+
+
+def sandbox_attacks():
+    attacks = [
+        ("jwt key", "SELECT content FROM read_blob('metadata/jwt.key')"),
+        ("storage key", "SELECT content FROM read_blob('metadata/storage.key')"),
+        ("system file", "SELECT content FROM read_text('/etc/passwd')"),
+        ("listing", "SELECT * FROM glob('*')"),
+        ("metadata db", "ATTACH 'metadata/metadata.duckdb' AS meta (READ_ONLY)"),
+        ("other user's db", "ATTACH 'data/users/bob.duckdb' AS other (READ_ONLY)"),
+        ("new db file", "ATTACH 'data/users/new.duckdb' AS created"),
+        ("write a file", "COPY (SELECT 1 AS x) TO 'logs/pwned.csv'"),
+        ("export", "EXPORT DATABASE 'logs/dump'"),
+        ("http", "SELECT * FROM read_text('http://169.254.169.254/latest/meta-data/')"),
+        ("install", "INSTALL spatial"),
+        ("load", "LOAD spatial"),
+    ]
+    if SERVER_DIR:
+        attacks += [
+            ("jwt key, absolute", f"SELECT content FROM read_blob('{SERVER_DIR}/metadata/jwt.key')"),
+            ("metadata db, absolute", f"ATTACH '{SERVER_DIR}/metadata/metadata.duckdb' AS meta2 (READ_ONLY)"),
+        ]
+    return attacks
+
+
+SANDBOX_ESCAPES = [
+    "SET enable_external_access = true",
+    "SET lock_configuration = false",
+    "SET allowed_directories = ['/']",
+    "RESET allowed_directories",
+    "SET allow_persistent_secrets = true",
+]
+
+
+@pytest.mark.parametrize("name,sql", sandbox_attacks(), ids=[a[0] for a in sandbox_attacks()])
+def test_user_queries_cannot_reach_the_file_system(alice, name, sql):
+    with pytest.raises(adbc_driver_manager.Error) as error:
+        query(alice, sql)
+    message = str(error.value).lower()
+    # ATTACH of a file the server already has open (the metadata database, another user's open database) is refused
+    # by DuckDB before the sandbox is asked, with "unique file handle conflict ... is already attached"
+    assert "disabled" in message or "permission" in message or "already attached" in message, message
+
+
+@pytest.mark.parametrize("sql", SANDBOX_ESCAPES)
+def test_user_queries_cannot_undo_the_sandbox(alice, sql):
+    with pytest.raises(adbc_driver_manager.Error) as error:
+        query(alice, sql)
+    assert "locked" in str(error.value).lower()
+    # and it still holds afterwards
+    with pytest.raises(adbc_driver_manager.Error):
+        query(alice, "SELECT content FROM read_blob('metadata/jwt.key')")
+
+
+def test_sandbox_keeps_the_users_own_database_working(alice):
+    query(alice, "CREATE OR REPLACE TABLE sandbox_ok AS SELECT range AS n FROM range(10)")
+    assert query(alice, "SELECT sum(n) AS s FROM sandbox_ok").column("s").to_pylist() == [45]
+    # big enough to need the user's temporary directory
+    table = query(alice, "SELECT count(*) AS c FROM (SELECT md5(range::VARCHAR) AS m FROM range(2000000) ORDER BY m)")
+    assert table.column("c").to_pylist() == [2000000]
+
+
+def test_read_only_users_are_sandboxed_too(reader):
+    rest("PUT", "/management/users/reader/privileges/READ_ONLY", auth=ADMIN)
+    conn = connect_when_ready(reader)
+    try:
+        for sql in ("SELECT content FROM read_blob('metadata/jwt.key')",
+                    "ATTACH 'metadata/metadata.duckdb' AS meta (READ_ONLY)",
+                    "COPY (SELECT 1 AS x) TO 'logs/pwned.csv'"):
+            with pytest.raises(adbc_driver_manager.Error):
+                query(conn, sql)
+    finally:
+        conn.close()
+
+
+def test_forged_admin_token_from_a_users_query_is_impossible(alice):
+    # the attack of #24: read the signing key with SQL, then sign an admin token with it
+    with pytest.raises(adbc_driver_manager.Error):
+        query(alice, "SELECT content FROM read_blob('metadata/jwt.key')")
+    if SERVER_DIR:
+        assert not os.path.exists(os.path.join(SERVER_DIR, "logs", "pwned.csv"))
+
+
+def test_s3_storages_stay_reachable_and_other_buckets_do_not():
+    user = ("s3user", "s3user-pw")
+    rest("POST", "/management/users", {"username": user[0], "password": user[1]}, auth=ADMIN)
+    try:
+        rest("POST", "/api/storages", {"name": "probe", "bucket": "opencanard-sandbox-probe", "region": "eu-west-1",
+                                       "accessKeyId": "AKIAOPENCANARDTEST", "secretAccessKey": "not-a-real-secret"},
+             auth=user)
+        conn = connect_when_ready(user)
+        try:
+            # the storage's bucket is allowed: whatever fails now (credentials, network), it is not the sandbox
+            with pytest.raises(adbc_driver_manager.Error) as allowed:
+                query(conn, "SELECT * FROM read_parquet('s3://opencanard-sandbox-probe/x.parquet')")
+            assert "disabled by configuration" not in str(allowed.value), str(allowed.value)
+            for other in ("s3://some-other-bucket/x.parquet", "s3://opencanard-sandbox-probe-evil/x.parquet"):
+                with pytest.raises(adbc_driver_manager.Error) as refused:
+                    query(conn, f"SELECT * FROM read_parquet('{other}')")
+                assert "disabled by configuration" in str(refused.value), str(refused.value)
+        finally:
+            conn.close()
+    finally:
+        rest("DELETE", "/management/users/" + user[0], auth=ADMIN)

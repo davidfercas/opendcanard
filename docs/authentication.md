@@ -11,7 +11,7 @@
 | Flight port — `Bearer` token | The token issued after a successful `Basic` call, or the JWT of the REST login (signature, issuer, subject and expiry verified). Anything else is refused, and so is any token of a user that no longer exists. |
 | Flight port — transport | **Plaintext gRPC.** No TLS. |
 | REST API (`8084`) | Login returns a signed JWT; `/management/*` requires credentials or a JWT. Plain HTTP. |
-| Query restrictions | Users with the privilege [`READ_ONLY`](#privileges) get a read-only database. Everyone else runs SQL as-is on a read-write DuckDB connection; there is no sandbox (#13). |
+| Query restrictions | Queries of non-admin users are [sandboxed](#duckdb-sandbox): they reach only the user's own database, its S3 storages and the directories of `sandbox.allowed.directories`. Users with the privilege [`READ_ONLY`](#privileges) also get a read-only database; everyone else can change its own database. |
 | JWT signing secret | Random per installation (`metadata/jwt.key`), or set with `OPENCANARD_JWT_SECRET` / `jwt.secret`. See [JWT signing key](#jwt-signing-key). |
 
 Until the gaps below are fixed, run OpenCanard only on a trusted network (loopback, a private network,
@@ -82,7 +82,7 @@ defined by the server (`io.opencanard.user.Privileges`); today it has one:
   (`jdbc:duckdb:<file>;access_mode=READ_ONLY`), and the server checks in `duckdb_databases()` that DuckDB really
   opened it read-only before handing out a connection. Every statement that would change the database (`INSERT`,
   `UPDATE`, `DELETE`, `CREATE`, `DROP`, ...) fails, on the Flight port and in the console alike; databases
-  `ATTACH`ed from that connection are read-only too. Reading files and S3 (`read_parquet`, `COPY ... TO` a local
+  `ATTACH`ed from that connection are read-only too. Reading S3 storages (`read_parquet('s3://...')`) and the directories of `sandbox.allowed.directories` (`COPY ... TO` there
   file) is not a database change and is not blocked.
   - It is read on every new connection, so a grant or a revoke applies from the user's next query. DuckDB fixes the
     access mode when it opens a file, so the server closes the file and opens it again with the new mode; that
@@ -192,6 +192,33 @@ Once authenticated, there is no per-statement authorization on the Flight port: 
 statement the DuckDB connection allows, including statements that modify data, unless it has the privilege
 [`READ_ONLY`](#privileges), in which case its database is opened read-only.
 
+## DuckDB sandbox
+
+The database of every non-admin user is locked down when the server opens it, before any query runs (#24). Its
+queries can reach:
+
+- the user's own database file (and its temporary directory, for queries larger than memory);
+- the S3 locations of the user's [storages](web-console.md#s3-storage) (`s3://bucket/` or `s3://bucket/folder/`; another bucket,
+  or a bucket whose name only starts the same, is refused);
+- the directories listed in `sandbox.allowed.directories` (see [Configuration](configuration.md)), the same for every
+  user.
+
+Everything else is refused with `Permission Error: ... file system operations are disabled by configuration`:
+other files (`read_blob('metadata/jwt.key')`, `read_csv('/etc/passwd')`, `glob`), `ATTACH` of any other database
+(the metadata database, another user's file, a new file), `COPY ... TO` and `EXPORT DATABASE` elsewhere,
+`http(s)://` URLs, `INSTALL` and `LOAD` of extensions, and persistent secrets. The configuration is locked
+(`lock_configuration`), so a query cannot undo any of this, and the server checks the settings in
+`duckdb_settings()` before handing out a connection: if they are not in place, the database is not opened.
+
+Because the configuration is locked, user queries cannot change DuckDB settings either (`SET TimeZone`,
+`SET threads`, ...); `USE` and `SET search_path` still work.
+
+DuckDB fixes these settings when it opens the file. When a user adds, changes or removes a storage, the server closes
+the file and opens it again with the new S3 locations, once the user's queries started before have finished (until
+then the change is saved, and the console reports that it is not registered yet).
+
+Admins are not sandboxed: they work on the metadata database (see [Per-user databases](#per-user-databases)).
+
 ## TLS
 
 The sample configuration contains `tls.enabled=true`, `tls.certFile` and `tls.keyFile`, but **these
@@ -237,5 +264,7 @@ These are tracked here so they are not mistaken for features:
 2. No TLS on either port; the `tls.*` properties are ignored.
 4. `POST /management/shutdown` only requires an authenticated user, not the `admin` role.
 5. Read-only is opt-in: only users with the privilege [`READ_ONLY`](#privileges) are limited, and even they can still
-   write files with `COPY ... TO` and DuckDB keeps its access to the file system and the network (#13).
+   write files with `COPY ... TO` in their S3 storages and in `sandbox.allowed.directories` (#13).
 6. Only the first admin is created automatically; further users must be added by hand in the metadata database.
+7. Admins are not sandboxed: their queries run on the metadata database with the file system access of the server
+   process (#13).

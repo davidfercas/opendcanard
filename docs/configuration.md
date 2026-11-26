@@ -37,6 +37,7 @@ installation directory themselves.
 | `jwt.secret` | *(not set)* | Key that signs the JWTs of the REST login, at least 32 bytes. When not set (and `OPENCANARD_JWT_SECRET` is not set either), a random key is created in `metadata/jwt.key` on the first start. See [JWT signing key](authentication.md#jwt-signing-key). |
 | `jwt.expiry.minutes` | `60` | Lifetime of a JWT, in minutes. |
 | `console.history.size` | `10` | Past queries kept per user in the web console's **History** (0 turns it off, at most 100). |
+| `sandbox.allowed.directories` | *(not set)* | Comma-separated directories (absolute paths) or URL prefixes that the queries of every non-admin user may read and write, besides its own database and S3 storages, for example `/data/events/`. Everything else is refused, see [DuckDB sandbox](authentication.md#duckdb-sandbox). |
 
 These properties are present in the sample file but **are not read by the server yet**:
 

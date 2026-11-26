@@ -118,6 +118,8 @@ echo "JWT checks passed"
 echo "== ADBC (Python)"
 # the Python tests sign their own JWTs with the key the server generated
 export OC_JWT_SECRET="$(cat "$SERVER/metadata/jwt.key")"
+# the sandbox tests (#24) try absolute paths inside the server directory
+export OC_SERVER_DIR="$SERVER"
 python3 -m pytest -q "$HERE/test_flight_sql.py"
 
 echo "== Apache Arrow Flight SQL JDBC driver"

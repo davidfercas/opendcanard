@@ -2,11 +2,15 @@ package io.opencanard.user;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.duckdb.DuckDBConnection;
 
+import io.opencanard.storage.StorageConfig;
+import io.opencanard.storage.StorageSecrets;
 import io.opencanard.storage.StorageService;
 
 /**
@@ -24,6 +28,8 @@ import io.opencanard.storage.StorageService;
  * server itself keeps open read-write; for them the privilege is ignored.
  * Before a connection is returned, the S3 storages of the login are registered in it (see
  * {@link StorageService#apply}), so queries on {@code s3://bucket/...} use the user's own credentials.
+ * The database of a non-admin user is sandboxed ({@link DuckDBSandbox}): its queries reach only that database, the
+ * S3 locations of the user's storages and the directories of {@code sandbox.allowed.directories}.
  * Each call returns a new connection (a duplicate of the open database), which the caller closes. Closing it
  * never closes the underlying database.
  */
@@ -80,12 +86,29 @@ public class UserConnections {
 			return ((DuckDBConnection) metadatadb).duplicate();
 		}
 		boolean readOnly = isReadOnly(login);
-		Connection personal = userDatabases.connect(login, readOnly);
+		Connection personal = userDatabases.connect(login, readOnly, storageScopes(login));
 		if (personal == null) {
 			throw new NoDatabaseException("No database is registered for '" + login + "' in opencanard_databases");
 		}
 		logger.debug("'{}' uses its registered database{}", login, readOnly ? " (read-only)" : "");
 		return personal;
+	}
+
+	/**
+	 * The S3 locations of the login's storages, which its sandbox lets it reach. When they cannot be read, none: the
+	 * user's S3 queries fail, everything else works.
+	 */
+	private List<String> storageScopes(String login) {
+		List<String> scopes = new ArrayList<>();
+		try {
+			for (StorageConfig s : storages.list(login)) {
+				scopes.add(StorageSecrets.scope(s));
+			}
+		} catch (Exception e) {
+			logger.warn("Cannot read the S3 storages of '{}', its queries cannot reach S3: {}", login, e.getMessage());
+			return List.of();
+		}
+		return scopes;
 	}
 
 	/**
