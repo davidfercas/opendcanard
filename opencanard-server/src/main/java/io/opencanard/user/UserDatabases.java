@@ -10,11 +10,14 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.duckdb.DuckDBConnection;
+
+import io.opencanard.storage.StorageService;
 
 /**
  * Manages the personal DuckDB files of the users, stored in {@code <dir>} and listed in the table
@@ -28,6 +31,9 @@ import org.duckdb.DuckDBConnection;
  * </ul>
  * A database file is never created by {@link #connect}: DuckDB creates a file just by connecting to a
  * path, so existence is checked first.
+ * <p>
+ * Every database is locked down by {@link DuckDBSandbox} when it is opened, before any connection to it is handed
+ * out: user SQL cannot read or write files outside its own database and its S3 storages (#24).
  */
 public class UserDatabases implements AutoCloseable {
 
@@ -38,11 +44,23 @@ public class UserDatabases implements AutoCloseable {
 	private final DatabaseRegistry registry = new DatabaseRegistry();
 	/** One open "base" connection per database file; it keeps the database open between requests. */
 	private final Map<String, DuckDBConnection> open = new HashMap<>();
-	/** The access mode each entry of {@link #open} was opened with (true: {@code access_mode=READ_ONLY}). */
-	private final Map<String, Boolean> openReadOnly = new HashMap<>();
+	/** How each entry of {@link #open} was opened: access mode and sandbox. */
+	private final Map<String, Profile> openProfile = new HashMap<>();
+	private final DuckDBSandbox sandbox;
 
-	public UserDatabases(Path dir, Connection metadatadb) throws IOException {
+	/**
+	 * How a database is opened. DuckDB fixes both when it opens the file (the sandbox is locked), so a connection
+	 * that needs another profile requires closing and opening the file again.
+	 *
+	 * @param readOnly           {@code access_mode=READ_ONLY} (privilege {@link Privileges#READ_ONLY})
+	 * @param allowedDirectories what the sandbox lets the user reach, see {@link DuckDBSandbox#allowedDirectories}
+	 */
+	record Profile(boolean readOnly, List<String> allowedDirectories) {
+	}
+
+	public UserDatabases(Path dir, Connection metadatadb, DuckDBSandbox sandbox) throws IOException {
 		this.metadatadb = metadatadb;
+		this.sandbox = sandbox;
 		this.dir = dir.toAbsolutePath().normalize();
 		Files.createDirectories(this.dir);
 		logger.info("[user-db] user databases are stored in {}", this.dir);
@@ -98,7 +116,7 @@ public class UserDatabases implements AutoCloseable {
 	public synchronized void delete(String username) throws Exception {
 		Path file = databaseFile(username);
 		DuckDBConnection base = open.remove(file.toString());
-		openReadOnly.remove(file.toString());
+		openProfile.remove(file.toString());
 		if (base != null) {
 			base.close();
 		}
@@ -121,7 +139,7 @@ public class UserDatabases implements AutoCloseable {
 			throw new IOException("Refusing to remove '" + duckdbFile + "': it is outside " + dir);
 		}
 		DuckDBConnection base = open.remove(file.toString());
-		openReadOnly.remove(file.toString());
+		openProfile.remove(file.toString());
 		if (base != null) {
 			try {
 				base.close();
@@ -135,9 +153,9 @@ public class UserDatabases implements AutoCloseable {
 		return removed;
 	}
 
-	/** {@link #connect(String, boolean)} in read-write mode. */
+	/** {@link #connect(String, boolean, List)} in read-write mode, without S3 storages. */
 	public Connection connect(String login) throws SQLException {
-		return connect(login, false);
+		return connect(login, false, List.of());
 	}
 
 	/**
@@ -149,11 +167,15 @@ public class UserDatabases implements AutoCloseable {
 	 * the same file with another mode, so when the mode asked for differs from the one the file is open with, the
 	 * file is closed and opened again. That only succeeds once the connections handed out before (running queries)
 	 * are closed; until then the call fails, so a read-only user never gets a writable connection.
+	 * <p>
+	 * The same holds for the sandbox ({@link DuckDBSandbox}): {@code storageScopes} are the S3 locations of the user's
+	 * storages, and when they differ from the ones the file was opened with (a storage was added, changed or removed),
+	 * the file is opened again with the new ones.
 	 *
-	 * @throws SQLException if the registered file is missing or lies outside the user databases directory, or the
-	 *                      file is still in use with the other access mode
+	 * @throws SQLException if the registered file is missing or lies outside the user databases directory, the file
+	 *                      is still in use with another access mode or sandbox, or the sandbox cannot be put in place
 	 */
-	public Connection connect(String login, boolean readOnly) throws SQLException {
+	public Connection connect(String login, boolean readOnly, List<String> storageScopes) throws SQLException {
 		if (login == null) {
 			return null;
 		}
@@ -170,15 +192,16 @@ public class UserDatabases implements AutoCloseable {
 			throw new SQLException("The database registered for '" + login + "' is outside " + dir);
 		}
 
+		Profile profile = new Profile(readOnly, sandbox.allowedDirectories(storageScopes));
 		DuckDBConnection base;
 		String key = file.toString();
 		synchronized (this) {
 			base = open.get(key);
-			if (base != null && openReadOnly.getOrDefault(key, false) != readOnly) {
-				logger.info("[user-db] access mode of {} changes to {}, reopening it", file,
-						readOnly ? "READ_ONLY" : "READ_WRITE");
+			Profile current = openProfile.get(key);
+			if (base != null && !profile.equals(current)) {
+				logger.info("[user-db] {} changes from {} to {}, reopening it", file, current, profile);
 				open.remove(key);
-				openReadOnly.remove(key);
+				openProfile.remove(key);
 				try {
 					base.close();
 				} catch (SQLException e) {
@@ -192,15 +215,15 @@ public class UserDatabases implements AutoCloseable {
 							+ "' is registered as " + file + " but the file does not exist");
 				}
 				try {
-					base = open(login, file, readOnly);
+					base = open(login, file, profile);
 				} catch (SQLException e) {
 					throw new SQLException("The database '" + entry.getDatabaseName() + "' of '" + login
 							+ "' cannot be opened " + (readOnly ? "read-only" : "read-write")
-							+ ". If its access mode was just changed, queries started before still hold it: try again "
-							+ "when they finish (" + e.getMessage() + ")", e);
+							+ ". If its access mode or its storages were just changed, queries started before still "
+							+ "hold it: try again when they finish (" + e.getMessage() + ")", e);
 				}
 				open.put(key, base);
-				openReadOnly.put(key, readOnly);
+				openProfile.put(key, profile);
 			}
 		}
 		return base.duplicate();
@@ -287,7 +310,8 @@ public class UserDatabases implements AutoCloseable {
 		}
 	}
 
-	private DuckDBConnection open(String username, Path file, boolean readOnly) throws SQLException {
+	private DuckDBConnection open(String username, Path file, Profile profile) throws SQLException {
+		boolean readOnly = profile.readOnly();
 		DuckDBConnection conn = (DuckDBConnection) DriverManager
 				.getConnection(readOnly ? url(file) + ";access_mode=READ_ONLY" : url(file));
 		if (readOnly) {
@@ -315,8 +339,23 @@ public class UserDatabases implements AutoCloseable {
 			logger.warn("[user-db] DuckDB arrow extension not available for '{}' ({}); not needed", username,
 					e.getMessage());
 		}
-		logger.info("[user-db] opened the database of '{}' ({}): {}", username, readOnly ? "READ_ONLY" : "READ_WRITE",
-				file);
+		if (DuckDBSandbox.needsHttpfs(profile.allowedDirectories())) {
+			// the sandbox forbids LOAD afterwards, so S3 works only if httpfs is loaded now
+			try {
+				StorageService.loadHttpfs(conn);
+			} catch (SQLException e) {
+				logger.warn("[user-db] S3 storages of '{}' will not work: {}", username, e.getMessage());
+			}
+		}
+		try {
+			sandbox.apply(conn, profile.allowedDirectories());
+		} catch (SQLException e) {
+			conn.close();
+			throw new SQLException("Cannot lock down the database of '" + username + "' (" + e.getMessage()
+					+ "): it is not opened", e);
+		}
+		logger.info("[user-db] opened the database of '{}' ({}, sandboxed, allowed: {}): {}", username,
+				readOnly ? "READ_ONLY" : "READ_WRITE", profile.allowedDirectories(), file);
 		return conn;
 	}
 
@@ -330,7 +369,7 @@ public class UserDatabases implements AutoCloseable {
 			}
 		}
 		open.clear();
-		openReadOnly.clear();
+		openProfile.clear();
 		logger.info("[user-db] all user databases closed");
 	}
 

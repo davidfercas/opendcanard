@@ -337,7 +337,8 @@ public class StorageService {
 		}
 	}
 
-	private static void loadHttpfs(Connection target) throws SQLException {
+	/** Loads the DuckDB httpfs extension in the database of {@code target}, installing it first if needed. */
+	public static void loadHttpfs(Connection target) throws SQLException {
 		try {
 			execute(target, "LOAD httpfs");
 		} catch (SQLException notInstalled) {

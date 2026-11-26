@@ -198,7 +198,9 @@ public class OpenCanardServer implements FlightProducer, AutoCloseable {
 		//this.server = FlightServer.builder(this.allocator, location, this).headerAuthenticator(CallHeaderAuthenticator.NO_OP).build(); 
 		
 		// REST API (Javalin): all endpoints live in the io.opencanard.rest package
-		this.userDatabases = new UserDatabases(Paths.get(DATA_DIR, "users"), this.metadatadb);
+		// user queries cannot reach files outside their own database and S3 storages (#24)
+		this.userDatabases = new UserDatabases(Paths.get(DATA_DIR, "users"), this.metadatadb,
+				io.opencanard.user.DuckDBSandbox.fromProperty(Config.get("sandbox.allowed.directories")));
 		this.userDatabases.reconcile();
 		UserService userService = new UserService(this.metadatadb, this.userDatabases, ADMIN_USER);
 		StorageService storageService;

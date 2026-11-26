@@ -120,7 +120,9 @@ print(table.to_pandas())
 ```
 
 Parquet and object-storage data is queried with DuckDB's own functions inside the SQL, for example
-`SELECT * FROM read_parquet('/data/events/*.parquet')`.
+`SELECT * FROM read_parquet('/data/events/*.parquet')`. Users reach only their S3 storages and the directories an
+administrator lists in `sandbox.allowed.directories` (here `/data/events/`); see
+[DuckDB sandbox](authentication.md#duckdb-sandbox).
 
 ### Java / BI tools (bundled JDBC driver)
 
